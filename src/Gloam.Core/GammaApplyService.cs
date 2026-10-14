@@ -400,6 +400,8 @@ namespace Gloam.Core
             {
                 calibration.ShadowDetailStrength = gamerSession.Profile.ShadowDetailStrength;
                 calibration.ShadowDetailPivot = gamerSession.Profile.ShadowDetailPivot;
+                if (gamerSession.Profile.OverrideBrightness)
+                    calibration.Brightness = gamerSession.Profile.Brightness;
             }
 
             if (nightModeActive)

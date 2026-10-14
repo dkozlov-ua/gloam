@@ -625,7 +625,8 @@ namespace Gloam.ViewModels
                     GamerNightPolicy.NightOps => $"Night Ops {NightOpsKelvin}K",
                     _ => "follows night schedule"
                 };
-                return $"{gamma} · {shadows} · {night}";
+                string brightness = OverrideBrightness ? $"brightness {Brightness:F0}%" : "monitor brightness";
+                return $"{gamma} · {brightness} · {shadows} · {night}";
             }
         }
 
@@ -760,6 +761,35 @@ namespace Gloam.ViewModels
             }
         }
 
+        public bool OverrideBrightness
+        {
+            get => _profile.OverrideBrightness;
+            set
+            {
+                if (_profile.OverrideBrightness == value) return;
+                _profile.OverrideBrightness = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(BrightnessLabel));
+                OnPropertyChanged(nameof(EffectSummary));
+            }
+        }
+
+        public double Brightness
+        {
+            get => _profile.Brightness;
+            set
+            {
+                double clamped = double.IsFinite(value) ? Math.Clamp(value, 10.0, 100.0) : 100.0;
+                if (Math.Abs(_profile.Brightness - clamped) < 0.0001) return;
+                _profile.Brightness = clamped;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(BrightnessLabel));
+                OnPropertyChanged(nameof(EffectSummary));
+            }
+        }
+
+        public string BrightnessLabel => OverrideBrightness ? $"{Brightness:F0}%" : "Monitor setting";
+
         public double ShadowDetailPercent
         {
             get => _profile.ShadowDetailStrength * 100.0;
@@ -890,6 +920,9 @@ namespace Gloam.ViewModels
             OnPropertyChanged(nameof(EffectSummary));
             OnPropertyChanged(nameof(GammaMode));
             OnPropertyChanged(nameof(OverrideGamma));
+            OnPropertyChanged(nameof(OverrideBrightness));
+            OnPropertyChanged(nameof(Brightness));
+            OnPropertyChanged(nameof(BrightnessLabel));
             OnPropertyChanged(nameof(ShadowDetailPercent));
             OnPropertyChanged(nameof(ShadowDetailLabel));
             OnPropertyChanged(nameof(ShadowDetailPlainLabel));

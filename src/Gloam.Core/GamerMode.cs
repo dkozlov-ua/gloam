@@ -146,6 +146,15 @@ namespace Gloam.Core
         public bool OverrideGamma { get; set; } = true;
         public GammaMode GammaMode { get; set; } = GammaMode.Gamma22;
 
+        /// <summary>
+        /// Replace the monitor's brightness (dimming) while the game is active. Off by default
+        /// so existing profiles keep inheriting the monitor setting.
+        /// </summary>
+        public bool OverrideBrightness { get; set; }
+
+        /// <summary>Brightness percentage (10..100) used when <see cref="OverrideBrightness"/> is set.</summary>
+        public double Brightness { get; set; } = 100.0;
+
         /// <summary>Strength of the black-anchored visibility toe, 0..1.</summary>
         public double ShadowDetailStrength { get; set; } = 0.55;
 
@@ -193,6 +202,8 @@ namespace Gloam.Core
             HdrCapability = HdrCapability,
             OverrideGamma = OverrideGamma,
             GammaMode = GammaMode,
+            OverrideBrightness = OverrideBrightness,
+            Brightness = Brightness,
             ShadowDetailStrength = ShadowDetailStrength,
             ShadowDetailPivot = ShadowDetailPivot,
             NightPolicy = NightPolicy,
@@ -224,6 +235,7 @@ namespace Gloam.Core
                 ? copy.GammaMode : GammaMode.Gamma22;
             copy.NightPolicy = Enum.IsDefined(typeof(GamerNightPolicy), copy.NightPolicy)
                 ? copy.NightPolicy : GamerNightPolicy.FollowSchedule;
+            copy.Brightness = ClampFinite(copy.Brightness, 10.0, 100.0, 100.0);
             copy.ShadowDetailStrength = ClampFinite(copy.ShadowDetailStrength, 0.0, 1.0, 0.0);
             copy.ShadowDetailPivot = ClampFinite(copy.ShadowDetailPivot, 0.02, 0.25, 0.10);
             copy.NightOpsKelvin = Math.Clamp(copy.NightOpsKelvin, 1900, 6500);
@@ -258,6 +270,8 @@ namespace Gloam.Core
                 && a.HdrCapability == b.HdrCapability
                 && a.OverrideGamma == b.OverrideGamma
                 && a.GammaMode == b.GammaMode
+                && a.OverrideBrightness == b.OverrideBrightness
+                && a.Brightness == b.Brightness
                 && a.ShadowDetailStrength == b.ShadowDetailStrength
                 && a.ShadowDetailPivot == b.ShadowDetailPivot
                 && a.NightPolicy == b.NightPolicy

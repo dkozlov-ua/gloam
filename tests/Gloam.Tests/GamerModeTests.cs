@@ -166,6 +166,29 @@ namespace Gloam.Tests
         }
 
         [Fact]
+        public void BrightnessOverride_IsOptInClampedAndSurvivesPresetsAndClone()
+        {
+            GamerProfileRule profile = GamerPresetCatalog.Create(
+                "game.exe", GamerPictureIntent.CompetitiveClarity);
+            Assert.False(profile.OverrideBrightness);
+            Assert.Equal(100.0, profile.Brightness);
+
+            profile.OverrideBrightness = true;
+            profile.Brightness = 65;
+            GamerPresetCatalog.Apply(profile, GamerPictureIntent.NightOps);
+            Assert.True(profile.OverrideBrightness);
+            Assert.Equal(65, profile.Brightness);
+
+            GamerProfileRule copy = profile.Clone();
+            Assert.True(copy.SemanticallyEquals(profile));
+            copy.Brightness = 70;
+            Assert.False(copy.SemanticallyEquals(profile));
+
+            Assert.Equal(10, new GamerProfileRule { Brightness = 2 }.Sanitized().Brightness);
+            Assert.Equal(100, new GamerProfileRule { Brightness = double.NaN }.Sanitized().Brightness);
+        }
+
+        [Fact]
         public void ShadowVisibility_AnchorsBlackAndPivot_AndProtectsMidtones()
         {
             const double pivot = 0.10;

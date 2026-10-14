@@ -31,7 +31,9 @@ namespace Gloam.Services
         // 'vpk upload github' target MUST point at the same repo, or CheckForUpdatesAsync
         // 404s. The repo must actually be named 'gloam' (GitHub web-redirects the old
         // name, but release assets resolve under the canonical name).
-        private const string RepoUrl = "https://github.com/halideworks/gloam";
+        // Fork: updates come from this fork's releases so an upstream release can't
+        // silently replace the per-game brightness build.
+        private const string RepoUrl = "https://github.com/dkozlov-ua/gloam";
         private const string ExpectedPackageId = "GloamApp";
 
         private readonly IUpdateManagerAdapter _manager;
