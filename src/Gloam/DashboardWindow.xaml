@@ -335,47 +335,33 @@
 
             <!-- Content -->
             <Grid Grid.Row="1" Margin="24">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-
-                <Grid x:Name="DashboardHeader" Grid.Row="0" Margin="0,0,0,20">
-                    <Grid.ColumnDefinitions>
-                         <ColumnDefinition Width="*"/>
-                         <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-
-                    <!-- Heading with kicker -->
-                    <StackPanel VerticalAlignment="Center">
-                        <TextBlock Text="Displays" Style="{StaticResource Kicker}" Margin="0,0,0,4"/>
-                        <TextBlock Text="Active monitors" FontFamily="{StaticResource DisplayFont}"
-                                   FontWeight="ExtraBold" FontSize="26" Foreground="{DynamicResource ThemeText}"/>
-                    </StackPanel>
-
-                    <!-- Controls -->
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0" Visibility="Collapsed">
-                            <TextBlock Text="Night profile" Style="{StaticResource FieldLabel}"
-                                       VerticalAlignment="Center" Margin="0,0,8,0"/>
-                            <ComboBox Width="210" Height="36"
-                                      ItemsSource="{Binding AvailableNightModeAlgorithms}"
-                                      DisplayMemberPath="Label"
-                                      SelectedValuePath="Value"
-                                      SelectedValue="{Binding SelectedNightModeAlgorithm}"
-                                      ToolTip="{Binding SelectedNightModeAlgorithmDescription}"/>
-                        </StackPanel>
-
-                        <Button Content="Refresh" Command="{Binding RefreshCommand}" Height="36" Margin="0,0,10,0"/>
-
-                        <Button Content="{Binding NightModeModeLabel}" Command="{Binding CycleNightModeCommand}"
-                                Padding="16,9" Height="36" MinWidth="166" Visibility="Collapsed"/>
-                    </StackPanel>
-                </Grid>
-
-                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel x:Name="DashboardContentStack">
+                        <!-- Section header in the Game Lab style. It scrolls with the content
+                             instead of staying pinned above it. -->
+                        <Grid x:Name="DashboardHeader" Margin="0,0,0,10">
+                            <TextBlock Text="Displays" FontFamily="{StaticResource DisplayFont}"
+                                       FontWeight="Bold" FontSize="14" Foreground="{DynamicResource ThemeText}"
+                                       VerticalAlignment="Center"/>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0" Visibility="Collapsed">
+                                    <TextBlock Text="Night profile" Style="{StaticResource FieldLabel}"
+                                               VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <ComboBox Width="210" Height="30"
+                                              ItemsSource="{Binding AvailableNightModeAlgorithms}"
+                                              DisplayMemberPath="Label"
+                                              SelectedValuePath="Value"
+                                              SelectedValue="{Binding SelectedNightModeAlgorithm}"
+                                              ToolTip="{Binding SelectedNightModeAlgorithmDescription}"/>
+                                </StackPanel>
+
+                                <Button Content="Refresh" Command="{Binding RefreshCommand}" Padding="11,5"/>
+
+                                <Button Content="{Binding NightModeModeLabel}" Command="{Binding CycleNightModeCommand}"
+                                        Padding="11,5" MinWidth="166" Margin="10,0,0,0" Visibility="Collapsed"/>
+                            </StackPanel>
+                        </Grid>
+
                         <ItemsControl x:Name="DashboardItems" ItemsSource="{Binding Items}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>

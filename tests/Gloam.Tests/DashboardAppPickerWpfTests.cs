@@ -55,6 +55,11 @@ namespace Gloam.Tests
                     window.Show();
                     Pump(TimeSpan.FromMilliseconds(100));
 
+                    // The Displays header scrolls with the content rather than staying pinned.
+                    Assert.True(HasVisualAncestor<ScrollViewer>(
+                        Assert.IsType<Grid>(window.FindName("DashboardHeader"))));
+                    SaveScreenshotIfRequested(window, "dashboard-top.png");
+
                     var viewModel = Assert.IsType<DashboardViewModel>(window.DataContext);
                     Assert.Equal(update.DisplayVersion,
                         Assert.IsType<TextBlock>(window.FindName("AppVersionLabel")).Text);
