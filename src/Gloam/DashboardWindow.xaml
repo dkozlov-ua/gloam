@@ -934,7 +934,19 @@
                                                                         <ComboBox x:Name="AdvancedGammaModeBox" Margin="0"
                                                                                   IsEnabled="{Binding OverrideGamma}"
                                                                                   ItemsSource="{Binding AvailableGammaModes}" DisplayMemberPath="Label"
-                                                                                  SelectedValuePath="Value" SelectedValue="{Binding GammaMode, Mode=TwoWay}"/>
+                                                                                  SelectedValuePath="Value" SelectedValue="{Binding GammaMode, Mode=TwoWay}">
+                                                                            <!-- The native Windows curve is hidden as a choice; a profile
+                                                                                 already on it (Cinematic HDR) still shows it as selected. -->
+                                                                            <ComboBox.ItemContainerStyle>
+                                                                                <Style TargetType="ComboBoxItem" BasedOn="{StaticResource {x:Type ComboBoxItem}}">
+                                                                                    <Style.Triggers>
+                                                                                        <DataTrigger Binding="{Binding Value}" Value="WindowsDefault">
+                                                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                                                        </DataTrigger>
+                                                                                    </Style.Triggers>
+                                                                                </Style>
+                                                                            </ComboBox.ItemContainerStyle>
+                                                                        </ComboBox>
                                                                     </StackPanel>
                                                                     <StackPanel Grid.Row="2" Grid.Column="4" Grid.ColumnSpan="2" Margin="0,7,9,0">
                                                                         <TextBlock Text="PAPER WHITE" Style="{StaticResource FieldLabel}"/>

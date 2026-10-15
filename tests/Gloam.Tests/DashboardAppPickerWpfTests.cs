@@ -221,9 +221,21 @@ namespace Gloam.Tests
                     Rect targetDisplaysBounds = BoundsIn(
                         Assert.IsType<ComboBox>(FindVisualChild<ComboBox>(workspace, "AdvancedTargetDisplaysBox")),
                         workspace);
-                    Rect gammaBounds = BoundsIn(
-                        Assert.IsType<ComboBox>(FindVisualChild<ComboBox>(workspace, "AdvancedGammaModeBox")),
-                        workspace);
+                    var gammaBox = Assert.IsType<ComboBox>(FindVisualChild<ComboBox>(workspace, "AdvancedGammaModeBox"));
+                    Rect gammaBounds = BoundsIn(gammaBox, workspace);
+                    // The native Windows curve is not offered as a gamma choice.
+                    gammaBox.IsDropDownOpen = true;
+                    Pump(TimeSpan.FromMilliseconds(80));
+                    for (int i = 0; i < gammaBox.Items.Count; i++)
+                    {
+                        var choice = Assert.IsType<GamerChoice<GammaMode>>(gammaBox.Items[i]);
+                        var container = Assert.IsType<ComboBoxItem>(gammaBox.ItemContainerGenerator.ContainerFromIndex(i));
+                        Assert.Equal(
+                            choice.Value == GammaMode.WindowsDefault ? Visibility.Collapsed : Visibility.Visible,
+                            container.Visibility);
+                    }
+                    gammaBox.IsDropDownOpen = false;
+                    Pump(TimeSpan.FromMilliseconds(40));
                     Rect paperWhiteBounds = BoundsIn(
                         Assert.IsType<TextBox>(FindVisualChild<TextBox>(workspace, "AdvancedPaperWhiteBox")),
                         workspace);

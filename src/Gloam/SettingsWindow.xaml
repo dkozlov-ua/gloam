@@ -207,7 +207,9 @@
                                 <ComboBox SelectedIndex="{Binding GammaModeIndex}">
                                     <ComboBoxItem Content="Gamma 2.2"/>
                                     <ComboBoxItem Content="Gamma 2.4"/>
-                                    <ComboBoxItem Content="Windows Default"/>
+                                    <!-- Hidden as a choice; kept so the index mapping holds and a
+                                         profile already on the native curve still shows it. -->
+                                    <ComboBoxItem Content="Windows Default" Visibility="Collapsed"/>
                                 </ComboBox>
                             </StackPanel>
                         </Border>

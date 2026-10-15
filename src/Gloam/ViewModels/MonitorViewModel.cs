@@ -74,7 +74,8 @@ namespace Gloam.ViewModels
 
                 SubItems.Add(_gamma22Item);
                 SubItems.Add(_gamma24Item);
-                SubItems.Add(_defaultItem);
+                // The native Windows curve (_defaultItem) is hidden from gamma selectors.
+                // It is still built so UpdateCheckmarks keeps one code path.
 
                 // Add settings option
                 SubItems.Add(new ActionViewModel("───────────", null));
