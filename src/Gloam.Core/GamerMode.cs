@@ -318,6 +318,9 @@ namespace Gloam.Core
     /// <summary>Reference presets used when a title is first added.</summary>
     public static class GamerPresetCatalog
     {
+        /// <summary>Look given to games when they are first added.</summary>
+        public const GamerPictureIntent DefaultIntent = GamerPictureIntent.Reference;
+
         public static GamerProfileRule Create(string appName, GamerPictureIntent intent)
         {
             var profile = new GamerProfileRule

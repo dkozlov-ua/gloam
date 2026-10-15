@@ -125,7 +125,7 @@ namespace Gloam.Core.Calibration
             {
                 return new RefinementResult(null,
                     $"avg ΔE ITP {before.AverageItpDeltaE:F1} is beyond the ±{MaxAvgItpToRefine:F0} refinement window — " +
-                    "something else is wrong (profile not active, night mode on, or panel drift); re-run the calibration instead",
+                    "something else is wrong (profile not active or panel drift); re-run the calibration instead",
                     before);
             }
 

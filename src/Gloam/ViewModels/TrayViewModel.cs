@@ -478,8 +478,7 @@ namespace Gloam.ViewModels
             // Panic: Win+Shift+F4
             _panicId = _hotkeyManager.Register(Key.F4, ModifierKeys.Windows | ModifierKeys.Shift);
 
-            // Night Mode Toggle: Win+Shift+N
-            _nightModeToggleId = _hotkeyManager.Register(Key.N, ModifierKeys.Windows | ModifierKeys.Shift);
+            // Night Mode Toggle (Win+Shift+N) is not registered while night mode UI is hidden.
 
             // Game Lab: Win+Shift+G. Opens the controls without any game-process hook or overlay.
             _gamerControlsId = _hotkeyManager.Register(Key.G, ModifierKeys.Windows | ModifierKeys.Shift);
@@ -780,7 +779,7 @@ namespace Gloam.ViewModels
             // non-modal toast. It confirms the recovery without stealing focus.
             _toastService?.Show(
                 "Gloam safe mode",
-                "Gamma cleared. Game Mode and night warmth are paused.",
+                "Gamma cleared. Game Mode is paused.",
                 ToastKind.Warning);
         }
 

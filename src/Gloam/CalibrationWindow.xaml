@@ -301,7 +301,7 @@
                                     <Run FontWeight="SemiBold">Color corrections will be temporarily disabled</Run>
                                 </TextBlock>
                                 <TextBlock TextWrapping="Wrap" Foreground="{StaticResource TextDim}" Margin="0,4,0,0">
-                                    Your current gamma adjustments and night mode settings will be bypassed
+                                    Your current gamma adjustments will be bypassed
                                     during calibration to measure the display's native response.
                                     After calibration, you can choose to view the results with or without
                                     your previous settings applied.
@@ -510,7 +510,7 @@
                                          Checked="DisplayModeOption_Changed">
                                 <StackPanel>
                                     <TextBlock Text="Calibration + Previous Settings" FontWeight="Medium"/>
-                                    <TextBlock Text="View with calibration, gamma adjustments, and night mode restored"
+                                    <TextBlock Text="View with calibration and gamma adjustments restored"
                                                Foreground="{StaticResource TextDim}" FontSize="12" TextWrapping="Wrap"/>
                                 </StackPanel>
                             </RadioButton>

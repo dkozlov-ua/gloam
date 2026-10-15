@@ -129,7 +129,8 @@
 
             <!-- App Exclusion Template -->
             <DataTemplate DataType="{x:Type vm:AppExclusionItem}">
-                <Border Style="{StaticResource MonitorCard}">
+                <!-- Night mode UI is hidden. -->
+                <Border Style="{StaticResource MonitorCard}" Visibility="Collapsed">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
@@ -300,7 +301,7 @@
 
                     <!-- Controls -->
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0" Visibility="Collapsed">
                             <TextBlock Text="Night profile" Style="{StaticResource FieldLabel}"
                                        VerticalAlignment="Center" Margin="0,0,8,0"/>
                             <ComboBox Width="210" Height="36"
@@ -314,7 +315,7 @@
                         <Button Content="Refresh" Command="{Binding RefreshCommand}" Height="36" Margin="0,0,10,0"/>
 
                         <Button Content="{Binding NightModeModeLabel}" Command="{Binding CycleNightModeCommand}"
-                                Padding="16,9" Height="36" MinWidth="166"/>
+                                Padding="16,9" Height="36" MinWidth="166" Visibility="Collapsed"/>
                     </StackPanel>
                 </Grid>
 
@@ -566,7 +567,7 @@
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
-                                            <ColumnDefinition Width="230"/>
+                                            <ColumnDefinition Width="Auto"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -574,9 +575,9 @@
                                             <TextBlock Text="{Binding GamerMode.ProfileCountText}" Style="{StaticResource FieldLabel}"
                                                        Margin="10,0,0,0" VerticalAlignment="Center"/>
                                         </StackPanel>
-                                        <TextBlock Grid.Column="1" Text="SET LIBRARY LOOK" Style="{StaticResource FieldLabel}"
+                                        <TextBlock Grid.Column="1" Text="SET LIBRARY LOOK" Style="{StaticResource FieldLabel}" Visibility="Collapsed"
                                                    Margin="0,0,8,0" VerticalAlignment="Center"/>
-                                        <Grid Grid.Column="2">
+                                        <Grid Grid.Column="2" Visibility="Collapsed">
                                             <ComboBox x:Name="LibraryPresetPicker" Margin="0" Height="30"
                                                       ItemsSource="{Binding GamerMode.AvailableLibraryPresets}"
                                                       SelectedItem="{Binding GamerMode.SelectedLibraryPreset, Mode=TwoWay}"
@@ -596,7 +597,7 @@
                                                 </TextBlock.Style>
                                             </TextBlock>
                                         </Grid>
-                                        <Button x:Name="ApplyLibraryPresetButton" Grid.Column="3" Content="Apply" Margin="7,0,0,0" Padding="13,6"
+                                        <Button x:Name="ApplyLibraryPresetButton" Grid.Column="3" Content="Apply" Visibility="Collapsed" Margin="7,0,0,0" Padding="13,6"
                                                 Command="{Binding ApplyGamerLibraryPresetCommand}"
                                                 IsEnabled="{Binding GamerMode.HasSelectedLibraryPreset}"/>
                                     </Grid>
@@ -774,8 +775,8 @@
                                                                     CommandParameter="{Binding}"/>
                                                         </Grid>
 
-                                                        <TextBlock Text="Choose a look" Style="{StaticResource FieldLabel}" Margin="0,0,0,7"/>
-                                                        <ListBox ItemsSource="{Binding AvailableQuickLooks}"
+                                                        <TextBlock Text="Choose a look" Style="{StaticResource FieldLabel}" Margin="0,0,0,7" Visibility="Collapsed"/>
+                                                        <ListBox ItemsSource="{Binding AvailableQuickLooks}" Visibility="Collapsed"
                                                                  SelectedValuePath="Value"
                                                                  SelectedValue="{Binding PictureIntent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                                  Background="Transparent" BorderThickness="0" Padding="0"
@@ -824,7 +825,7 @@
                                                             </ListBox.ItemTemplate>
                                                         </ListBox>
 
-                                                        <TextBlock Text="{Binding IntentDescription}" Margin="0,8,0,0"
+                                                        <TextBlock Text="{Binding IntentDescription}" Margin="0,8,0,0" Visibility="Collapsed"
                                                                    Foreground="{DynamicResource ThemeTextDim}" FontSize="11"
                                                                    TextWrapping="Wrap"/>
 
@@ -857,7 +858,7 @@
                                                                 <TextBlock Text="{Binding BrightnessLabel}" FontSize="10"
                                                                            Foreground="{DynamicResource ThemeTextDim}"/>
                                                             </StackPanel>
-                                                            <StackPanel Grid.Column="2" Margin="0,0,0,0" VerticalAlignment="Center">
+                                                            <StackPanel Grid.Column="2" Margin="0,0,0,0" VerticalAlignment="Center" Visibility="Collapsed">
                                                                 <CheckBox Content="Keep the picture steady while I play"
                                                                           IsChecked="{Binding GameplayLock, Mode=TwoWay}"
                                                                           ToolTip="Prevents scheduled color changes until you leave the game"/>
@@ -867,8 +868,7 @@
                                                             </StackPanel>
                                                         </Grid>
 
-                                                        <Grid Margin="0,14,0,0"
-                                                              Visibility="{Binding IsNightOps, Converter={StaticResource BoolToVis}}">
+                                                        <Grid Margin="0,14,0,0" Visibility="Collapsed">
                                                             <Grid.ColumnDefinitions>
                                                                 <ColumnDefinition Width="*"/>
                                                                 <ColumnDefinition Width="*"/>
@@ -934,7 +934,7 @@
                                                                         <ColumnDefinition Width="*"/>
                                                                         <ColumnDefinition Width="*"/>
                                                                     </Grid.ColumnDefinitions>
-                                                                    <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                                                                    <StackPanel Grid.Column="0" Margin="0,0,10,0" Visibility="Collapsed">
                                                                         <TextBlock Text="Night behavior" Style="{StaticResource FieldLabel}"/>
                                                                         <ComboBox ItemsSource="{Binding AvailableNightPolicies}" DisplayMemberPath="Label"
                                                                                   SelectedValuePath="Value" SelectedValue="{Binding NightPolicy, Mode=TwoWay}"/>
@@ -965,7 +965,7 @@
                                                                         <TextBlock Text="HDR peak (nits)" Style="{StaticResource FieldLabel}"/>
                                                                         <TextBox Text="{Binding PeakNits, UpdateSourceTrigger=PropertyChanged, StringFormat=F0}"/>
                                                                     </StackPanel>
-                                                                    <StackPanel Grid.Column="2" Visibility="{Binding IsNightOps, Converter={StaticResource BoolToVis}}">
+                                                                    <StackPanel Grid.Column="2" Visibility="Collapsed">
                                                                         <CheckBox Content="Limit melanopic light" IsChecked="{Binding IsNightOpsMelanopicCeilingEnabled, Mode=TwoWay}"
                                                                                   ToolTip="Optional hard limit. This can alter the selected look."/>
                                                                         <TextBox Margin="0,6,0,0" IsEnabled="{Binding IsNightOpsMelanopicCeilingEnabled}"
@@ -993,8 +993,8 @@
                             </Border>
                         </Expander>
 
-                        <!-- Night Mode Schedule -->
-                        <Expander Margin="0,24,0,0"
+                        <!-- Night Mode Schedule (hidden) -->
+                        <Expander Margin="0,24,0,0" Visibility="Collapsed"
                                   IsExpanded="{Binding IsNightModeControlsExpanded, Mode=TwoWay}"
                                   Foreground="{DynamicResource ThemeText}">
                             <Expander.Header>
@@ -1013,7 +1013,7 @@
                         </Expander>
 
                         <!-- Melanopic (circadian) status -->
-                        <Expander x:Name="MelanopicExpander" Margin="0,24,0,0"
+                        <Expander x:Name="MelanopicExpander" Margin="0,24,0,0" Visibility="Collapsed"
                                   IsExpanded="{Binding IsCircadianSectionExpanded, Mode=TwoWay}"
                                   Foreground="{DynamicResource ThemeText}"
                                   Expanded="MelanopicAdvancedExpander_Expanded">

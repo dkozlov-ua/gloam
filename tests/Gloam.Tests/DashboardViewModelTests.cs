@@ -166,9 +166,9 @@ namespace Gloam.Tests
             GamerProfileRule profile = Assert.Single(gamerMode.Profiles).ToRule();
             Assert.True(added);
             Assert.Equal("arena.exe", profile.AppName);
-            Assert.Equal(GamerPictureIntent.CompetitiveClarity, profile.PictureIntent);
+            Assert.Equal(GamerPictureIntent.Reference, profile.PictureIntent);
             Assert.True(profile.GameplayLock);
-            Assert.True(profile.ShadowDetailStrength > 0);
+            Assert.Equal(0.0, profile.ShadowDetailStrength);
             Assert.False(profile.Enabled);
             Assert.Null(profile.ExecutablePath);
             Assert.Contains("disabled", gamerMode.EditorStatus, StringComparison.OrdinalIgnoreCase);

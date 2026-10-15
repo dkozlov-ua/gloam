@@ -296,7 +296,7 @@ namespace Gloam.Core.Calibration
                 if (Math.Abs(err) > RefineMaxAbsError)
                     return new RefinementResult(null,
                         $"luminance error at {req:F0} nits is {err:+0.0%;-0.0%} — beyond the ±{RefineMaxAbsError:P0} " +
-                        "refinement window, so something else is wrong (profile not active, night mode on, or panel " +
+                        "refinement window, so something else is wrong (profile not active or panel " +
                         "drift); re-run the calibration instead",
                         avgAbsError, rungs.Count);
             }

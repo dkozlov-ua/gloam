@@ -237,7 +237,7 @@ namespace Gloam.ViewModels
                     ? "shadows reference"
                     : $"shadows +{session.ShadowDetailStrength * 100:F0}% below {session.ShadowDetailPivot * 100:F0}% linear";
                 string rendering =
-                    $"{IntentLabel(session.PictureIntent)} · {GammaLabel(session.EffectiveGamma)} · {shadow} · {NightPolicyLabel(session.NightPolicy)}";
+                    $"{IntentLabel(session.PictureIntent)} · {GammaLabel(session.EffectiveGamma)} · {shadow}";
                 string findings = session.Diagnostics.Count == 0
                     ? "signal chain verified from available Windows output facts"
                     : string.Join("  ", session.Diagnostics.Select(d =>
@@ -439,13 +439,6 @@ namespace Gloam.ViewModels
             GammaMode.Gamma24 => "Gamma 2.4",
             _ => "Windows Default"
         };
-
-        private static string NightPolicyLabel(GamerNightPolicy policy) => policy switch
-        {
-            GamerNightPolicy.ForceDaylight => "Daylight 6500K",
-            GamerNightPolicy.NightOps => "Spectral Night Ops",
-            _ => "Schedule"
-        };
     }
 
     public sealed record GamerDisplayOption(string DevicePath, string Label)
@@ -619,14 +612,8 @@ namespace Gloam.ViewModels
                 string shadows = ShadowDetailPercent <= 0.01
                     ? "reference shadows"
                     : $"shadow visibility {ShadowDetailPercent:F0}%";
-                string night = NightPolicy switch
-                {
-                    GamerNightPolicy.ForceDaylight => "6500K while active",
-                    GamerNightPolicy.NightOps => $"Night Ops {NightOpsKelvin}K",
-                    _ => "follows night schedule"
-                };
                 string brightness = OverrideBrightness ? $"brightness {Brightness:F0}%" : "monitor brightness";
-                return $"{gamma} · {brightness} · {shadows} · {night}";
+                return $"{gamma} · {brightness} · {shadows}";
             }
         }
 

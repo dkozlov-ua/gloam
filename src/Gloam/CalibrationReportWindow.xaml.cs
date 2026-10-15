@@ -2179,8 +2179,7 @@ namespace Gloam
                     $"Gloam will open the probe-positioning surface, then measure {patchesPerSweep} HDR patches " +
                     "through the active profile and tune " +
                     "brightness tracking and color together. It runs at most 2 passes, stops early when both " +
-                    "are accurate, and automatically keeps the best measured result.\n\n" +
-                    "Tip: turn night mode off first - it tints and dims the measurements.",
+                    "are accurate, and automatically keeps the best measured result.",
                     confirmLabel: "Position probe", cancelLabel: "Cancel"))
                 return false;
 
@@ -2455,8 +2454,7 @@ namespace Gloam
                     $"Gloam will open the probe-positioning surface, then measure {rungs.Count} PQ rungs " +
                     $"concentrated near the claimed {ladderBase:F0}-nit peak, " +
                     $"then the same white through window sizes from 1% to full-frame (~3 minutes total), and reports " +
-                    "the panel's TRUE tone-mapping knee, peak and ABL behavior with suggested HGIG game settings.\n\n" +
-                    "Tip: turn night mode off first.",
+                    "the panel's TRUE tone-mapping knee, peak and ABL behavior with suggested HGIG game settings.",
                     confirmLabel: "Position probe", cancelLabel: "Cancel"))
                 return;
 
@@ -2739,8 +2737,7 @@ namespace Gloam
             }
 
             string prompt = _profileApplied
-                ? "Gloam will open the probe-positioning surface, then measure the active correction.\n\n" +
-                  "Tip: turn night mode off while verifying - it tints the measurements."
+                ? "Gloam will open the probe-positioning surface, then measure the active correction."
                 : "The profile hasn't been applied from this window yet, so Verify will measure " +
                   "whatever is currently active on the display. The probe-positioning surface opens next.";
             if (!ConfirmDialog.Confirm(this, "Verify Calibration", prompt,

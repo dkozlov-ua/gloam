@@ -935,7 +935,7 @@ namespace Gloam.ViewModels
                         continue;
 
                     GamerProfileRule rule = GamerPresetCatalog.Create(
-                        item.ExecutableName, GamerPictureIntent.CompetitiveClarity);
+                        item.ExecutableName, GamerPresetCatalog.DefaultIntent);
                     rule.ExecutablePath = item.ExecutablePath;
                     rule.DisplayName = item.DisplayName;
                     rule.HdrCapability = item.HdrCapability;
@@ -1006,7 +1006,7 @@ namespace Gloam.ViewModels
             }
 
             GamerProfileRule rule = GamerPresetCatalog.Create(
-                app, GamerPictureIntent.CompetitiveClarity);
+                app, GamerPresetCatalog.DefaultIntent);
             rule.ExecutablePath = executablePath;
             if (executablePath != null)
                 rule.HdrCapability = GameDiscoveryService.DetectHdrCapability(executablePath).Capability;

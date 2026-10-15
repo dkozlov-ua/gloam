@@ -291,8 +291,8 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- Per-monitor night-mode controls -->
-                        <Border Style="{StaticResource SectionCard}">
+                        <!-- Per-monitor night-mode controls (hidden) -->
+                        <Border Style="{StaticResource SectionCard}" Visibility="Collapsed">
                             <StackPanel>
                                 <TextBlock Text="Night mode override" Style="{StaticResource SectionHeader}"/>
                                 <TextBlock Text="Fine-tune this monitor's temperature relative to the global setting."

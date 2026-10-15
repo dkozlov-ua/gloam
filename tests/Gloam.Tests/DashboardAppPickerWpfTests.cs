@@ -103,7 +103,7 @@ namespace Gloam.Tests
                     GamerProfileEditorItem editor = Assert.Single(viewModel.GamerMode.Profiles);
                     GamerProfileRule stored = Assert.Single(settings.GamerProfiles);
                     Assert.Equal("arena.exe", stored.AppName);
-                    Assert.Equal(GamerPictureIntent.CompetitiveClarity, stored.PictureIntent);
+                    Assert.Equal(GamerPictureIntent.Reference, stored.PictureIntent);
 
                     editor.PictureIntent = GamerPictureIntent.NightOps;
                     Pump(TimeSpan.FromMilliseconds(350));
@@ -244,9 +244,6 @@ namespace Gloam.Tests
                     Rect targetDisplaysBounds = BoundsIn(
                         Assert.IsType<ComboBox>(FindVisualChild<ComboBox>(viewport, "AdvancedTargetDisplaysBox")),
                         workspace);
-                    Rect nightBehaviorBounds = BoundsIn(
-                        Assert.IsType<ComboBox>(FindVisualChild<ComboBox>(viewport, "AdvancedNightBehaviorBox")),
-                        workspace);
                     Rect gammaBounds = BoundsIn(
                         Assert.IsType<ComboBox>(FindVisualChild<ComboBox>(viewport, "AdvancedGammaModeBox")),
                         workspace);
@@ -256,20 +253,20 @@ namespace Gloam.Tests
                     Rect peakNitsBounds = BoundsIn(
                         Assert.IsType<TextBox>(FindVisualChild<TextBox>(viewport, "AdvancedPeakNitsBox")),
                         workspace);
-                    Rect melanopicBounds = BoundsIn(
-                        Assert.IsType<TextBox>(FindVisualChild<TextBox>(viewport, "AdvancedMelanopicCeilingBox")),
-                        workspace);
+                    // Night-mode controls are hidden.
+                    Assert.False(Assert.IsType<ComboBox>(
+                        FindVisualChild<ComboBox>(viewport, "AdvancedNightBehaviorBox")).IsVisible);
+                    Assert.False(Assert.IsType<TextBox>(
+                        FindVisualChild<TextBox>(viewport, "AdvancedMelanopicCeilingBox")).IsVisible);
 
                     AssertAligned(profileBounds.Top, hdrSupportBounds.Top, expectedSignalBounds.Top, targetDisplaysBounds.Top);
-                    AssertAligned(nightBehaviorBounds.Top, gammaBounds.Top, paperWhiteBounds.Top, peakNitsBounds.Top);
-                    AssertAligned(profileBounds.Left, nightBehaviorBounds.Left);
-                    AssertAligned(profileBounds.Right, nightBehaviorBounds.Right);
+                    AssertAligned(gammaBounds.Top, paperWhiteBounds.Top, peakNitsBounds.Top);
                     AssertAligned(hdrSupportBounds.Left, gammaBounds.Left);
                     AssertAligned(hdrSupportBounds.Right, gammaBounds.Right);
                     AssertAligned(expectedSignalBounds.Left, paperWhiteBounds.Left);
                     AssertAligned(expectedSignalBounds.Right, paperWhiteBounds.Right);
-                    AssertAligned(targetDisplaysBounds.Left, peakNitsBounds.Left, melanopicBounds.Left);
-                    AssertAligned(targetDisplaysBounds.Right, peakNitsBounds.Right, melanopicBounds.Right);
+                    AssertAligned(targetDisplaysBounds.Left, peakNitsBounds.Left);
+                    AssertAligned(targetDisplaysBounds.Right, peakNitsBounds.Right);
                     Assert.True(paperWhiteBounds.Right < peakNitsBounds.Left);
                     var runningBox = Assert.IsType<CheckBox>(
                         FindVisualChild<CheckBox>(viewport, "ApplyWhileRunningBox"));

@@ -130,7 +130,7 @@
                 <Border Style="{StaticResource CardBorder}">
                     <StackPanel>
                         <TextBlock Text="Accuracy (ΔE2000)" Style="{StaticResource SectionHeader}"/>
-                        <TextBlock Text="Native = the uncorrected panel, measured during calibration. After = re-measured automatically through the applied profile (gamma preference and night mode are suspended during the sweep)."
+                        <TextBlock Text="Native = the uncorrected panel, measured during calibration. After = re-measured automatically through the applied profile (gamma preference is suspended during the sweep)."
                                    FontSize="12" Foreground="{DynamicResource ThemeTextDim}" TextWrapping="Wrap" Margin="0,-4,0,12"/>
 
                         <Grid>
