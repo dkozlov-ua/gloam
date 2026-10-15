@@ -173,12 +173,6 @@ namespace Gloam.ViewModels
 
         public string GamerModeToggleLabel => IsGamerModeEnabled ? "Pause all profiles" : "Resume game mode";
 
-        public bool IsGameLabSectionExpanded
-        {
-            get => SettingsManager.GetUiSectionExpanded("Dashboard.GameLab", true);
-            set => SetSectionExpanded("Dashboard.GameLab", value, nameof(IsGameLabSectionExpanded));
-        }
-
         public bool IsNightModeControlsExpanded
         {
             get => SettingsManager.GetUiSectionExpanded("Dashboard.NightModeControls", true);
@@ -195,12 +189,6 @@ namespace Gloam.ViewModels
         {
             get => SettingsManager.GetUiSectionExpanded("Dashboard.CircadianAdvanced", false);
             set => SetSectionExpanded("Dashboard.CircadianAdvanced", value, nameof(IsCircadianAdvancedExpanded));
-        }
-
-        public bool IsAddRunningGameExpanded
-        {
-            get => SettingsManager.GetUiSectionExpanded("GameLab.AddRunningGame", false);
-            set => SetSectionExpanded("GameLab.AddRunningGame", value, nameof(IsAddRunningGameExpanded));
         }
 
         public bool IsGameProfileAdvancedExpanded

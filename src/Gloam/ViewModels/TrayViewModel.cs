@@ -61,7 +61,6 @@ namespace Gloam.ViewModels
         public ICommand TrustCheckCommand { get; }
         public ICommand MatchDisplaysCommand { get; }
         public ICommand ExportDiagnosticsCommand { get; }
-        public ICommand GameLabCommand { get; }
         public ICommand ToggleGamerModeCommand { get; }
         public string AppVersion => _updateService.DisplayVersion;
         public string TrayToolTipText => $"Gloam {AppVersion}";
@@ -140,12 +139,11 @@ namespace Gloam.ViewModels
             ExitCommand = new RelayCommand(() => Application.Current.Shutdown());
             RefreshCommand = new RelayCommand(RefreshMonitors);
             StartupCommand = new RelayCommand(ToggleStartup);
-            DashboardCommand = new RelayCommand(OpenDashboard);
+            DashboardCommand = new RelayCommand(() => OpenDashboard());
             CalibrateCommand = new RelayCommand(OpenCalibration);
             TrustCheckCommand = new RelayCommand(OpenTrustCheck);
             MatchDisplaysCommand = new RelayCommand(OpenMatchDisplays);
             ExportDiagnosticsCommand = new RelayCommand(ExportDiagnostics);
-            GameLabCommand = new RelayCommand(ToggleGameLabWindow);
             ToggleGamerModeCommand = new RelayCommand(ToggleGamerMode);
 
             RefreshMonitors();
@@ -480,7 +478,7 @@ namespace Gloam.ViewModels
 
             // Night Mode Toggle (Win+Shift+N) is not registered while night mode UI is hidden.
 
-            // Game Lab: Win+Shift+G. Opens the controls without any game-process hook or overlay.
+            // Game Lab: Win+Shift+G. Opens the Dashboard's Game Lab without any game-process hook or overlay.
             _gamerControlsId = _hotkeyManager.Register(Key.G, ModifierKeys.Windows | ModifierKeys.Shift);
             if (_gamerControlsId <= 0)
                 Log.Info("TrayViewModel: Win+Shift+G registration failed; another app may own the shortcut.");
@@ -509,7 +507,7 @@ namespace Gloam.ViewModels
 
             if (id == _gamerControlsId)
             {
-                ToggleGameLabWindow();
+                ToggleGameLab();
                 return;
             }
 
@@ -770,10 +768,6 @@ namespace Gloam.ViewModels
             if (_gameModeItem != null)
                 _gameModeItem.Header = GamerModeLabel();
             _applyService.ClearAll(TrayItems.OfType<MonitorViewModel>().Select(vm => vm.Model));
-            foreach (GameLabWindow window in Application.Current.Windows
-                         .OfType<GameLabWindow>()
-                         .ToArray())
-                window.Close();
             // #22: replaced a parentless MessageBox.Show (called from the hotkey hook thread,
             // which could appear behind other windows / on the wrong monitor) with a themed,
             // non-modal toast. It confirms the recovery without stealing focus.
@@ -806,7 +800,7 @@ namespace Gloam.ViewModels
             }
         }
 
-        private void OpenDashboard()
+        private DashboardWindow OpenDashboard()
         {
             var dashboard = Application.Current.Windows.OfType<DashboardWindow>()
                 .FirstOrDefault();
@@ -831,41 +825,23 @@ namespace Gloam.ViewModels
             }
 
             dashboard.Activate();
+            return dashboard;
         }
 
-        private void ToggleGameLabWindow()
+        // Game Lab lives on the Dashboard. When the Dashboard has focus, the same chord
+        // dismisses it and returns to the game; otherwise it opens (or brings back) the
+        // Dashboard with the last foreground game offered in the picker.
+        private void ToggleGameLab()
         {
-            var existing = Application.Current.Windows.OfType<GameLabWindow>()
+            var existing = Application.Current.Windows.OfType<DashboardWindow>()
                 .FirstOrDefault();
-            if (existing != null)
+            if (existing is { IsActive: true })
             {
-                existing.SuggestGamerApp(_gamerModeCoordinator.LastExternalForegroundApp);
-
-                // When the console has focus, the same chord dismisses it and returns to
-                // the game. If it lost focus, bring it back instead of destroying edits.
-                if (existing.IsActive)
-                    existing.Close();
-                else
-                {
-                    if (existing.WindowState == WindowState.Minimized)
-                        existing.WindowState = WindowState.Normal;
-                    existing.Show();
-                    existing.Activate();
-                }
+                existing.Close();
                 return;
             }
 
-            var gameLab = new GameLabWindow(
-                _monitorManager,
-                _settingsManager,
-                _nightModeService,
-                _updateService,
-                RequestApply,
-                _applyService,
-                suggestedGameApp: _gamerModeCoordinator.LastExternalForegroundApp,
-                gamerModeCoordinator: _gamerModeCoordinator);
-            gameLab.Show();
-            gameLab.Activate();
+            OpenDashboard().ShowGameLab(_gamerModeCoordinator.LastExternalForegroundApp);
         }
 
         private void OpenCalibration()
@@ -960,7 +936,6 @@ namespace Gloam.ViewModels
                 TrayItems.Add(new ActionViewModel("Calibrate Display...", CalibrateCommand));
                 TrayItems.Add(new ActionViewModel("Trust Check...", TrustCheckCommand));
                 TrayItems.Add(new ActionViewModel("Match Displays...", MatchDisplaysCommand));
-                TrayItems.Add(new ActionViewModel("Open Game Lab    Win+Shift+G", GameLabCommand));
                 _gameModeItem = new ActionViewModel(GamerModeLabel(), ToggleGamerModeCommand, staysOpenOnClick: true);
                 TrayItems.Add(_gameModeItem);
                 TrayItems.Add(new ActionViewModel("───────────", null));

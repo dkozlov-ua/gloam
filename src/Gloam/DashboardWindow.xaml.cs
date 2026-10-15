@@ -94,6 +94,28 @@ namespace Gloam
             // Reflect the current app-wide brutalist theme on the toggle glyph.
             ThemeToggleButton.Content = BrutalistTheme.IsDark ? "◐" : "◑";
 
+            // The running-game picker should list what is running now, not what was
+            // running when the window was first opened.
+            Activated += (_, _) => _viewModel.RefreshGamerChoices();
+        }
+
+        /// <summary>
+        /// Win+Shift+G entry point: offers the game that last had focus in the picker and
+        /// moves keyboard focus into the Game Lab section.
+        /// </summary>
+        internal void ShowGameLab(string? suggestedGameApp)
+        {
+            _viewModel.SuggestGamerApp(suggestedGameApp);
+            Dispatcher.BeginInvoke(
+                System.Windows.Threading.DispatcherPriority.Loaded,
+                new Action(() =>
+                {
+                    GameLabSection.BringIntoView();
+                    if (!string.IsNullOrWhiteSpace(_viewModel.GamerMode.NewAppText))
+                        GamerAppPicker.Focus();
+                    else
+                        GameProfileSearchBox.Focus();
+                }));
         }
 
         // The brutalist light/dark palette is app-wide (App.BrutalistTheme): the toggle

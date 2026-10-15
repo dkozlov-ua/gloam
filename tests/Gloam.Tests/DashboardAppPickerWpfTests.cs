@@ -29,7 +29,6 @@ namespace Gloam.Tests
                 string root = Path.Combine(Path.GetTempPath(), $"gloam-picker-wpf-{Guid.NewGuid():N}");
                 Application? app = null;
                 DashboardWindow? window = null;
-                GameLabWindow? gameLabWindow = null;
                 NightModeService? nightMode = null;
                 try
                 {
@@ -147,8 +146,6 @@ namespace Gloam.Tests
 
                     var dashboardProfileList = Assert.IsType<ListBox>(window.FindName("DashboardGameProfileList"));
                     Assert.Equal(5, dashboardProfileList.Items.Count);
-                    Assert.True(double.IsNaN(dashboardProfileList.Height));
-                    Assert.Equal(260, dashboardProfileList.MaxHeight);
                     ScrollViewer dashboardProfileScroll = Assert.Single(
                         FindVisualChildren<ScrollViewer>(dashboardProfileList));
                     Assert.Equal(Visibility.Collapsed,
@@ -164,100 +161,75 @@ namespace Gloam.Tests
                     Assert.True(recentCountBounds.Right + 4 <= viewAllBounds.Left);
                     Assert.True(viewAllBounds.Right <= libraryPaneBounds.Right - 9);
                     Assert.True(viewAllBounds.Width >= 48);
-                    var gamerExpander = Assert.IsType<Expander>(window.FindName("GamerModeExpander"));
-                    gamerExpander.BringIntoView();
+
+                    // Game Lab is always shown on the Dashboard; nothing can collapse it.
+                    var gameLabSection = Assert.IsType<StackPanel>(window.FindName("GameLabSection"));
+                    Assert.False(HasVisualAncestor<Expander>(gameLabSection));
+                    Assert.Null(window.FindName("GamerModeExpander"));
+                    var workspace = Assert.IsType<Grid>(window.FindName("LibraryWorkspace"));
+                    Assert.Equal(Visibility.Visible, workspace.Visibility);
+                    // The library sits in the Dashboard's ScrollViewer, so its host has a fixed
+                    // height: the list must stay bounded (and virtualized) inside it.
+                    Assert.True(dashboardProfileList.ActualHeight <= workspace.ActualHeight);
+                    gameLabSection.BringIntoView();
                     Pump(TimeSpan.FromMilliseconds(120));
                     SaveScreenshotIfRequested(window, "dashboard-game-library.png");
-                    dashboardProfileList.BringIntoView();
-                    Pump(TimeSpan.FromMilliseconds(120));
-                    SaveScreenshotIfRequested(window, "dashboard-game-library-detail.png");
 
-                    gameLabWindow = new GameLabWindow(
-                        new MonitorManager(), settings, nightMode, update,
-                        (_, _, _, _, _) => { },
-                        suggestedGameApp: "teardown.exe")
-                    {
-                        WindowStartupLocation = WindowStartupLocation.Manual,
-                        Left = -10000,
-                        Top = -10000,
-                        ShowActivated = false
-                    };
-                    gameLabWindow.Show();
+                    window.ShowGameLab("teardown.exe");
                     Pump(TimeSpan.FromMilliseconds(100));
-
-                    Assert.Equal("Gloam - Game Lab", gameLabWindow.Title);
-                    Assert.False(gameLabWindow.Topmost);
-                    Assert.True(gameLabWindow.ShowInTaskbar);
-                    Assert.InRange(gameLabWindow.ActualHeight, 640, 660);
-                    var viewport = Assert.IsType<Grid>(gameLabWindow.FindName("GameLabViewport"));
-                    var workspace = Assert.IsType<Grid>(gameLabWindow.FindName("LibraryWorkspace"));
-                    Assert.Equal(Visibility.Visible, workspace.Visibility);
-                    Assert.True(viewport.ActualHeight <= gameLabWindow.ActualHeight);
-                    var profileList = Assert.IsType<ListBox>(gameLabWindow.FindName("GameProfileList"));
-                    Assert.Equal(5, profileList.Items.Count);
-                    ScrollViewer profileScroll = Assert.Single(
-                        FindVisualChildren<ScrollViewer>(profileList));
-                    Assert.Equal(Visibility.Collapsed, profileScroll.ComputedVerticalScrollBarVisibility);
-                    Assert.Equal(Visibility.Collapsed, profileScroll.ComputedHorizontalScrollBarVisibility);
-                    Assert.All(FindVisualChildren<ScrollViewer>(viewport), scroll =>
-                        Assert.True(
-                            HasVisualAncestor<ItemsControl>(scroll) ||
-                            HasVisualAncestor<TextBox>(scroll),
-                            "Game Lab must not have a window-level ScrollViewer."));
-                    var gameLabViewModel = Assert.IsType<DashboardViewModel>(gameLabWindow.DataContext);
-                    Assert.Equal("teardown.exe", gameLabViewModel.GamerMode.NewAppText);
+                    Assert.Equal("teardown.exe", viewModel.GamerMode.NewAppText);
 
                     GamerLibraryPresetOption hdrDefault = Assert.Single(
-                        gameLabViewModel.GamerMode.AvailableLibraryPresets,
+                        viewModel.GamerMode.AvailableLibraryPresets,
                         option => option.HdrCapableOnly);
-                    gameLabViewModel.GamerMode.SelectedLibraryPreset = hdrDefault;
-                    gameLabViewModel.ApplyGamerLibraryPresetCommand.Execute(null);
+                    viewModel.GamerMode.SelectedLibraryPreset = hdrDefault;
+                    viewModel.ApplyGamerLibraryPresetCommand.Execute(null);
                     Pump(TimeSpan.FromMilliseconds(100));
-                    Assert.Equal(2, gameLabViewModel.GamerMode.Profiles.Count(profile =>
+                    Assert.Equal(2, viewModel.GamerMode.Profiles.Count(profile =>
                         profile.PictureIntent == GamerPictureIntent.CinematicHdr));
-                    Assert.All(gameLabViewModel.GamerMode.Profiles.Where(profile => !profile.IsHdrCapable),
+                    Assert.All(viewModel.GamerMode.Profiles.Where(profile => !profile.IsHdrCapable),
                         profile => Assert.NotEqual(GamerPictureIntent.CinematicHdr, profile.PictureIntent));
 
-                    Assert.NotNull(gameLabViewModel.GamerMode.SelectedProfile);
-                    gameLabViewModel.GamerMode.SelectedProfile!.PictureIntent =
+                    Assert.NotNull(viewModel.GamerMode.SelectedProfile);
+                    viewModel.GamerMode.SelectedProfile!.PictureIntent =
                         GamerPictureIntent.CompetitiveClarity;
                     Pump(TimeSpan.FromMilliseconds(260));
-                    SaveScreenshotIfRequested(gameLabWindow, "game-lab-compact.png");
+                    SaveScreenshotIfRequested(window, "dashboard-game-library-detail.png");
 
-                    gameLabViewModel.GamerMode.SelectedProfile.PictureIntent = GamerPictureIntent.NightOps;
+                    viewModel.GamerMode.SelectedProfile.PictureIntent = GamerPictureIntent.NightOps;
                     Expander advanced = Assert.Single(
-                        FindVisualChildren<Expander>(viewport),
+                        FindVisualChildren<Expander>(workspace),
                         expander => Equals(expander.Header, "Advanced signal & display controls"));
                     advanced.IsExpanded = true;
                     Pump(TimeSpan.FromMilliseconds(260));
                     Assert.True(advanced.ActualHeight < workspace.ActualHeight);
 
                     Rect profileBounds = BoundsIn(
-                        Assert.IsType<TextBox>(FindVisualChild<TextBox>(viewport, "AdvancedProfileNameBox")),
+                        Assert.IsType<TextBox>(FindVisualChild<TextBox>(workspace, "AdvancedProfileNameBox")),
                         workspace);
                     Rect hdrSupportBounds = BoundsIn(
-                        Assert.IsType<ComboBox>(FindVisualChild<ComboBox>(viewport, "AdvancedHdrSupportBox")),
+                        Assert.IsType<ComboBox>(FindVisualChild<ComboBox>(workspace, "AdvancedHdrSupportBox")),
                         workspace);
                     Rect expectedSignalBounds = BoundsIn(
-                        Assert.IsType<ComboBox>(FindVisualChild<ComboBox>(viewport, "AdvancedExpectedSignalBox")),
+                        Assert.IsType<ComboBox>(FindVisualChild<ComboBox>(workspace, "AdvancedExpectedSignalBox")),
                         workspace);
                     Rect targetDisplaysBounds = BoundsIn(
-                        Assert.IsType<ComboBox>(FindVisualChild<ComboBox>(viewport, "AdvancedTargetDisplaysBox")),
+                        Assert.IsType<ComboBox>(FindVisualChild<ComboBox>(workspace, "AdvancedTargetDisplaysBox")),
                         workspace);
                     Rect gammaBounds = BoundsIn(
-                        Assert.IsType<ComboBox>(FindVisualChild<ComboBox>(viewport, "AdvancedGammaModeBox")),
+                        Assert.IsType<ComboBox>(FindVisualChild<ComboBox>(workspace, "AdvancedGammaModeBox")),
                         workspace);
                     Rect paperWhiteBounds = BoundsIn(
-                        Assert.IsType<TextBox>(FindVisualChild<TextBox>(viewport, "AdvancedPaperWhiteBox")),
+                        Assert.IsType<TextBox>(FindVisualChild<TextBox>(workspace, "AdvancedPaperWhiteBox")),
                         workspace);
                     Rect peakNitsBounds = BoundsIn(
-                        Assert.IsType<TextBox>(FindVisualChild<TextBox>(viewport, "AdvancedPeakNitsBox")),
+                        Assert.IsType<TextBox>(FindVisualChild<TextBox>(workspace, "AdvancedPeakNitsBox")),
                         workspace);
                     // Night-mode controls are hidden.
                     Assert.False(Assert.IsType<ComboBox>(
-                        FindVisualChild<ComboBox>(viewport, "AdvancedNightBehaviorBox")).IsVisible);
+                        FindVisualChild<ComboBox>(workspace, "AdvancedNightBehaviorBox")).IsVisible);
                     Assert.False(Assert.IsType<TextBox>(
-                        FindVisualChild<TextBox>(viewport, "AdvancedMelanopicCeilingBox")).IsVisible);
+                        FindVisualChild<TextBox>(workspace, "AdvancedMelanopicCeilingBox")).IsVisible);
 
                     AssertAligned(profileBounds.Top, hdrSupportBounds.Top, expectedSignalBounds.Top, targetDisplaysBounds.Top);
                     AssertAligned(gammaBounds.Top, paperWhiteBounds.Top, peakNitsBounds.Top);
@@ -269,12 +241,12 @@ namespace Gloam.Tests
                     AssertAligned(targetDisplaysBounds.Right, peakNitsBounds.Right);
                     Assert.True(paperWhiteBounds.Right < peakNitsBounds.Left);
                     var runningBox = Assert.IsType<CheckBox>(
-                        FindVisualChild<CheckBox>(viewport, "ApplyWhileRunningBox"));
+                        FindVisualChild<CheckBox>(workspace, "ApplyWhileRunningBox"));
                     Assert.True(runningBox.IsChecked);
                     runningBox.IsChecked = false;
                     Pump(TimeSpan.FromMilliseconds(350));
                     Assert.False(settings.GamerProfiles.Single(profile => profile.AppName == "arena.exe").ApplyWhileRunning);
-                    SaveScreenshotIfRequested(gameLabWindow, "game-lab-advanced.png");
+                    SaveScreenshotIfRequested(window, "dashboard-game-lab-advanced.png");
                     advanced.IsExpanded = false;
 
                     var discovered = Enumerable.Range(0, 80)
@@ -284,23 +256,23 @@ namespace Gloam.Tests
                             Path.Combine(root, "found", $"found-{i:000}.exe"),
                             i % 2 == 0 ? "Steam" : "Epic"))
                         .ToArray();
-                    gameLabViewModel.GamerMode.SetDiscoveryResults(
+                    viewModel.GamerMode.SetDiscoveryResults(
                         discovered, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
-                    foreach (DiscoveredGameItem item in gameLabViewModel.GamerMode.DiscoveredGames.Take(3))
+                    foreach (DiscoveredGameItem item in viewModel.GamerMode.DiscoveredGames.Take(3))
                         item.IsSelected = true;
                     Pump(TimeSpan.FromMilliseconds(80));
                     Assert.Equal(Visibility.Visible,
-                        Assert.IsType<Border>(gameLabWindow.FindName("GameScanPanel")).Visibility);
+                        Assert.IsType<Border>(window.FindName("GameScanPanel")).Visibility);
+                    Assert.Equal(Visibility.Collapsed, workspace.Visibility);
                     Assert.Equal(80,
-                        Assert.IsType<ListBox>(gameLabWindow.FindName("DiscoveredGamesList")).Items.Count);
-                    SaveScreenshotIfRequested(gameLabWindow, "game-lab-scan-review.png");
+                        Assert.IsType<ListBox>(window.FindName("DiscoveredGamesList")).Items.Count);
+                    SaveScreenshotIfRequested(window, "dashboard-game-lab-scan-review.png");
                 }
                 finally
                 {
-                    try { gameLabWindow?.Close(); } catch { }
                     try { window?.Close(); } catch { }
                     nightMode?.Dispose();
-                    // Deliberately NOT app.Shutdown(). Both windows are already closed above,
+                    // Deliberately NOT app.Shutdown(). The window is already closed above,
                     // and Shutdown is a PROCESS-level teardown: it tears down WPF's input
                     // stack for the whole test run, after which Mouse.Capture silently fails
                     // in every later test (ProbePlacementDragTests, which exists because a
