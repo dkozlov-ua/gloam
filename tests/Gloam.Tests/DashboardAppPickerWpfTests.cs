@@ -180,10 +180,6 @@ namespace Gloam.Tests
                     Pump(TimeSpan.FromMilliseconds(120));
                     SaveScreenshotIfRequested(window, "dashboard-game-library.png");
 
-                    window.ShowGameLab("teardown.exe");
-                    Pump(TimeSpan.FromMilliseconds(100));
-                    Assert.Equal("teardown.exe", viewModel.GamerMode.NewAppText);
-
                     GamerLibraryPresetOption hdrDefault = Assert.Single(
                         viewModel.GamerMode.AvailableLibraryPresets,
                         option => option.HdrCapableOnly);

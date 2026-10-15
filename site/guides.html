@@ -104,17 +104,13 @@
               <li><strong>Gamma 2.4</strong>: BT.1886, dark-room viewing, film mastering.</li>
               <li><strong>Windows Default</strong>: native piecewise sRGB (bypass).</li>
             </ul>
-            <p>Global hotkeys switch the focused monitor without opening the menu:
-            <kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>F1</kbd> for 2.2,
-            <kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>F2</kbd> for 2.4,
-            <kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>F3</kbd> for Windows default, and
-            <kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>F4</kbd> for panic mode, which clears all gamma tables immediately. <kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd> toggles night mode, and <kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> opens Game Lab for the active game.</p>
+            <p>Each monitor's card on the Dashboard also has quick 2.2 / 2.4 gamma and brightness buttons.</p>
           </li>
 
           <li data-step="03">
             <h3>Set up night mode (no meter needed)</h3>
             <p>Night mode warms the white point to cut blue light in the evening. It composes on top of your gamma correction and any installed calibration, and it works the same whether or not you ever calibrate.</p>
-            <p>The Night Mode button cycles between <strong>Off</strong>, <strong>Auto</strong>, and <strong>Manual</strong>. Off disables warmth entirely, Auto follows your configured schedule, and Manual holds your selected temperature immediately. <kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd> is a separate quick toggle that temporarily disables or restores warmth without changing your button choice; it does not persist across restarts, so night mode always comes back on the next boot.</p>
+            <p>The Night Mode button cycles between <strong>Off</strong>, <strong>Auto</strong>, and <strong>Manual</strong>. Off disables warmth entirely, Auto follows your configured schedule, and Manual holds your selected temperature immediately.</p>
             <p>Open <strong>Settings</strong> from the tray to configure the schedule. Each point fixes a target Kelvin and the duration of the fade into it; triggers can be a fixed time, sunrise, or sunset, computed from your latitude and longitude with optional ±120-minute offsets. Fades run in mired space and pace themselves against a perceptual threshold, so a long slide into warm white stays smooth rather than stepping.</p>
             <p>The rendering algorithm decides how the warm white point is computed:</p>
             <ul style="padding-left: 1.5rem; margin-bottom: 1.5rem;">
@@ -131,7 +127,7 @@
 
           <li data-step="04">
             <h3>Set up Game Lab</h3>
-            <p>Press <kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> while a game is active. Add that executable, or scan local Steam, Epic, GOG, and Xbox library metadata and choose a title yourself. Scanning never enables a profile automatically.</p>
+            <p>Open the Dashboard and go to the Game Lab section. Add a running game, or scan local Steam, Epic, GOG, and Xbox library metadata and choose a title yourself. Scanning never enables a profile automatically.</p>
             <ul style="padding-left: 1.5rem; margin-bottom: 1.5rem;">
               <li><strong>Reference</strong> keeps measured correction and the monitor's normal gamma.</li>
               <li><strong>Competitive Clarity</strong> lifts the deepest shadows while protecting the midtones.</li>
@@ -180,7 +176,7 @@
         <h2 style="margin-top: 0; margin-bottom: 2rem;">How Game Lab stays out of the game</h2>
         <p>Game Lab watches the normal Windows foreground-window state and resolves a saved display profile outside the game process. It does not inject a DLL, hook a swap chain, draw an overlay, or inspect game memory. Executable paths are validated before they can become profiles, and shell or system executables are filtered from discovery.</p>
         <p>For borderless or windowed games that span displays, Gloam applies the profile only to the screens covered by the game window. Local signal checks report the expected SDR/HDR mode, DXGI color space, bit depth, HDR headroom, and measured-calibration status. These are observations of the Windows display chain, not claims about a game's internal renderer.</p>
-        <p>Edits save and apply automatically. Disable the profile to compare against your normal desktop state, or press the panic hotkey at any time to clear live gamma ramps. Calibration and verification temporarily bypass game rendering so a foreground profile cannot contaminate measurements.</p>
+        <p>Edits save and apply automatically. Disable the profile to compare against your normal desktop state. Calibration and verification temporarily bypass game rendering so a foreground profile cannot contaminate measurements.</p>
       </section>
 
       <section id="best-practices" style="padding-top: 3rem; border-bottom: none;">
@@ -218,7 +214,7 @@
 
         <div style="border: 2px solid var(--border); padding: 1.5rem; margin: 3.5rem 0; background: rgba(226, 43, 31, 0.03);">
           <span style="font-family: var(--font-display); font-weight: 800; font-size: 0.8rem; text-transform: uppercase; color: var(--accent); display: block; margin-bottom: 0.5rem;">Escape hatch</span>
-          <p style="margin-bottom: 0;">If something ever looks wrong, <kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>F4</kbd> (panic mode) clears all gamma tables immediately, and the calibration report's toggle button disables the installed profile for an instant A/B.</p>
+          <p style="margin-bottom: 0;">If something ever looks wrong, the calibration report's toggle button disables the installed profile for an instant A/B.</p>
         </div>
       </section>
 

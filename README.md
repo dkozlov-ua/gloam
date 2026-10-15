@@ -73,14 +73,7 @@ Something not behaving? See [Troubleshooting](docs/troubleshooting.md).
 
 ![The Gloam dashboard: per-monitor status, night mode, and calibration state](docs/media/dashboard.png)
 
-Hotkeys:
-
-- `Win + Shift + F1`: Gamma 2.2 on the focused monitor.
-- `Win + Shift + F2`: Gamma 2.4 on the focused monitor.
-- `Win + Shift + F3`: Windows Default.
-- `Win + Shift + F4`: Panic mode, clears gamma ramps immediately.
-- `Win + Shift + N`: Toggle night mode.
-- `Win + Shift + G`: Open or dismiss the dedicated Game Lab window for the active game.
+Gloam has no global hotkeys. Left-click the tray icon to open the Dashboard.
 
 ## Night mode
 
@@ -94,11 +87,11 @@ Ultra Night pushes further for maximum blue suppression, and can use a spectral 
 
 ![Game Lab: per-game picture intents and the live session receipt](docs/media/game-lab.png)
 
-1. Press `Win + Shift + G` from a game to open the compact Game Lab window. The dashboard section remains available for desktop setup.
+1. Left-click the tray icon to open the Dashboard; Game Lab is the section below Displays.
 2. The foreground game's executable is prefilled. Running-game choices refresh while the window is open.
 3. Add the game and choose a picture intent. Competitive Clarity lifts the deepest shadows while protecting midtones; Cinematic HDR preserves PQ and checks the Windows signal; Night Ops uses Gloam's spectral renderer.
 4. Edits save and apply automatically. Toggle **Profile enabled** to compare the profile with the calibrated baseline.
-5. Leave **Gameplay Lock** enabled to hold schedule-derived color temperature steady during the session. The panic and manual night-mode hotkeys remain authoritative.
+5. Leave **Gameplay Lock** enabled to hold schedule-derived color temperature steady during the session.
 6. The active-session receipt lists the gamma, shadow treatment, night policy, target display, and signal findings that Gloam can verify.
 
 The implementation and measurement boundaries are documented in [Game Lab design](docs/gamer-mode-design.md).

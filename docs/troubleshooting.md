@@ -66,10 +66,8 @@ correction should return on its own within a few seconds. Wait for it before int
 
 If it does not come back, or you need it back *now*:
 
-- Press `Win + Shift + F4` for panic mode, which clears the gamma ramps immediately and
-  returns the display to an uncorrected state. Then re-select your gamma mode from the tray.
-- Press `Win + Shift + F1` (Gamma 2.2) or `Win + Shift + F2` (Gamma 2.4) to re-apply
-  directly to the focused monitor.
+- Re-select your gamma mode from the tray, or click 2.2 / 2.4 on the monitor's card in the
+  Dashboard, to re-apply it directly.
 
 The ramp guard deliberately stands down for a display that is mid-calibration, so if this
 happens while a calibration is running, that is expected. Finish or cancel the run first.
@@ -115,7 +113,7 @@ those.
 3. Check whether the foreground application is on your night-mode exclusion list. Excluded
    applications suppress night mode while they are focused, by design.
 4. Check whether Gameplay Lock is holding the output steady for an active game session.
-   That is also by design; the manual toggle (`Win + Shift + N`) stays authoritative.
+   That is also by design.
 
 **Optional, for the full warm range on SDR:** Windows' gamma-ramp limit itself can be
 lifted with the same registry override f.lux and ArgyllCMS document. As Administrator, add

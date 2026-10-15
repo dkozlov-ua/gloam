@@ -457,11 +457,7 @@
                             <Grid Margin="0,0,0,10">
                                 <TextBlock Text="Game Lab" FontFamily="{StaticResource DisplayFont}"
                                            FontWeight="Bold" FontSize="14" Foreground="{DynamicResource ThemeText}"
-                                           VerticalAlignment="Center"/>
-                                <TextBlock Text="Win + Shift + G" FontFamily="{StaticResource MonoFont}" FontSize="10"
-                                           Foreground="{DynamicResource ThemeTextDim}"
-                                           HorizontalAlignment="Right" VerticalAlignment="Center"/>
-                            </Grid>
+                                           VerticalAlignment="Center"/>                            </Grid>
 
                             <Border Background="{DynamicResource ThemeSurface}"
                                     BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1"
@@ -490,9 +486,8 @@
                                                    Foreground="{DynamicResource ThemeTextDim}"
                                                    TextTrimming="CharacterEllipsis" MaxHeight="14"/>
                                     </StackPanel>
-                                    <!-- Only the resume action is offered: pausing is hidden, but
-                                         safe mode (Win+Shift+F4) still pauses Game Mode and needs a
-                                         way back. -->
+                                    <!-- Only the resume action is offered: pausing is hidden, but a
+                                         Game Mode paused earlier (saved in settings) needs a way back. -->
                                     <Button Grid.Column="3" Content="{Binding GamerModeToggleLabel}"
                                             Command="{Binding ToggleGamerModeCommand}"
                                             Margin="15,0,0,0"
@@ -1124,11 +1119,7 @@
                             <Grid Margin="2,9,2,0">
                                 <TextBlock Text="{Binding GamerMode.EditorStatus}"
                                            FontFamily="{StaticResource MonoFont}" FontSize="9"
-                                           Foreground="{DynamicResource ThemeTextDim}"/>
-                                <TextBlock Text="Win + Shift + F4 clears display changes and pauses Game Mode"
-                                           HorizontalAlignment="Right" FontSize="9"
-                                           Foreground="{DynamicResource ThemeTextDim}"/>
-                            </Grid>
+                                           Foreground="{DynamicResource ThemeTextDim}"/>                            </Grid>
                         </StackPanel>
 
                         <!-- Night Mode Schedule (hidden) -->

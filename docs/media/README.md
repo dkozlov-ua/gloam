@@ -13,7 +13,7 @@ Nothing here is mocked.
 | `tray-menu.png` | Tray menu, per-monitor submenu open on the gamma modes | Right-click the tray icon, hover a monitor |
 | `dashboard.png` | Active monitors, gamma mode, night temperature, auto-disable list | Tray → Open Dashboard |
 | `night-mode.png` | Schedule curve, rendering profile, melanopic ceiling, schedule table | Dashboard → Night mode controls |
-| `game-lab.png` | Per-game picture intents and the live session panel | `Win + Shift + G` |
+| `game-lab.png` | Per-game picture intents and the live session panel | Dashboard → Game Lab |
 | `calibration-report.png` | Before/after ΔE, uncertainty budget, display characteristics | Calibrate Display → Past reports… → Open |
 
 ## The hero image is a render

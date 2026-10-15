@@ -46,10 +46,7 @@ namespace Gloam
             services.AddSingleton<UpdateService>();
             services.AddSingleton<IToastService, ToastService>();
             // The live TrayViewModel is created by MainWindow through
-            // ActivatorUtilities.CreateInstance, which pulls the singletons above and
-            // passes the window-bound HotkeyManager explicitly. Resolving this
-            // registration directly would yield an instance without hotkeys
-            // (HotkeyManager is an optional ctor parameter).
+            // ActivatorUtilities.CreateInstance, which pulls the singletons above.
             services.AddSingleton<TrayViewModel>();
 
             return services.BuildServiceProvider();

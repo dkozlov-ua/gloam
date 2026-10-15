@@ -13,9 +13,9 @@ That boundary matters. Anti-cheat systems see an ordinary desktop color-manageme
 5. The existing coalescer applies only the newest state. The ramp guard continues to restore corrections after a driver or game clears them.
 6. Leaving the game clears the session and restores the monitor's ordinary settings, unless the profile uses "Apply while the app is running, even without focus".
 
-The optional running policy checks enabled profiles every two seconds and verifies their executable paths. It retains the profile until the app exits, including while minimized when targeting one specific display or all displays. Window targeting uses the running process's main window bounds. A focused profile takes priority; otherwise the first matching running profile in saved order owns the session. Repeated checks preserve the captured Gameplay Lock state. Pause and the emergency hotkey bypass running profiles too.
+The optional running policy checks enabled profiles every two seconds and verifies their executable paths. It retains the profile until the app exits, including while minimized when targeting one specific display or all displays. Window targeting uses the running process's main window bounds. A focused profile takes priority; otherwise the first matching running profile in saved order owns the session. Repeated checks preserve the captured Gameplay Lock state. Pause bypasses running profiles too.
 
-`Win + Shift + G` opens a topmost Game Lab window and keeps the game that yielded focus as the policy target. A newly added profile can therefore activate before the console closes. Field edits are coalesced for 180 ms, persisted, and sent through the foreground resolver. Running executable choices refresh every 2.5 seconds without resetting typed text or an open picker. Repeated focus events preserve the original session time and locked color temperature.
+Game Lab is a section of the Dashboard. Field edits are coalesced for 180 ms, persisted, and sent through the foreground resolver. Running executable choices refresh every 2.5 seconds without resetting typed text or an open picker. Repeated focus events preserve the original session time and locked color temperature.
 
 ## Picture intents
 
@@ -71,7 +71,7 @@ The dashboard groups findings by display and grades them as information, warning
 
 Settings are schema-versioned, sanitized on load, and returned as deep snapshots. Invalid enum values fall back to safe presets; numeric fields are finite and clamped; duplicate executable rules resolve deterministically. A missing named display falls back to window targeting during sanitization.
 
-Game Lab uses the same panic hotkey and calibration bypass as the rest of Gloam. Calibration measurements bypass temporary game rendering, and a manual panic clears the ramps immediately. Resume and display-topology events re-enumerate monitors, refresh the foreground assignment, and rebuild sessions against the new signal facts.
+Game Lab uses the same calibration bypass as the rest of Gloam. Calibration measurements bypass temporary game rendering. Resume and display-topology events re-enumerate monitors, refresh the foreground assignment, and rebuild sessions against the new signal facts.
 
 ## Research backlog
 

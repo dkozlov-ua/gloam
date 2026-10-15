@@ -14,7 +14,6 @@ namespace Gloam
         Justification = "WPF owns the window lifecycle; Cleanup disposes window-bound resources on close and application exit.")]
     public partial class MainWindow : Window
     {
-        private HotkeyManager? _hotkeyManager;
         private TrayViewModel? _trayViewModel;
         private bool _cleanedUp;
 
@@ -35,15 +34,9 @@ namespace Gloam
             var helper = new WindowInteropHelper(this);
             helper.EnsureHandle(); 
             
-            // Initialize services with handle
-            Log.Info("MainWindow: Initializing HotkeyManager...");
-            _hotkeyManager = new HotkeyManager(helper.Handle);
-            
-            // HotkeyManager needs this window's handle, so it cannot live in the
-            // container; ActivatorUtilities resolves the shared singletons from
-            // App.Services and passes the HotkeyManager explicitly.
+            // ActivatorUtilities resolves the shared singletons from App.Services.
             Log.Info("MainWindow: Initializing TrayViewModel...");
-            _trayViewModel = ActivatorUtilities.CreateInstance<TrayViewModel>(App.Services, _hotkeyManager);
+            _trayViewModel = ActivatorUtilities.CreateInstance<TrayViewModel>(App.Services);
             
             // Route themed notifications. The old OS balloon is replaced by the in-app
             // ToastWindow; NotificationRequested is the Core→app boundary so Core code can
@@ -118,7 +111,7 @@ namespace Gloam
         /// <summary>
         /// Idempotent teardown: disposes the tray view model (which stops the night-mode and
         /// ramp-guard timers, unhooks the foreground-window hook, and applies any pending
-        /// update on the way out) and the hotkey manager. Called from both OnClosed and the
+        /// update on the way out). Called from both OnClosed and the
         /// Application.Exit handler; the guard makes a double-call a no-op.
         /// </summary>
         private void Cleanup()
@@ -126,7 +119,6 @@ namespace Gloam
             if (_cleanedUp) return;
             _cleanedUp = true;
             _trayViewModel?.Dispose();
-            _hotkeyManager?.Dispose();
         }
     }
 }

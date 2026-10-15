@@ -28,17 +28,11 @@ namespace Gloam.ViewModels
         private readonly ProfileManager _profileManager;
         private readonly DispwinRunner _dispwinRunner;
         private readonly SettingsManager _settingsManager;
-        private readonly HotkeyManager? _hotkeyManager;
         private readonly NightModeService _nightModeService;
         private readonly GammaApplyService _applyService;
         private readonly UpdateService _updateService;
         private readonly IToastService? _toastService;
         private readonly DispatcherTimer _updateCheckTimer;
-
-        private readonly Dictionary<int, Action<MonitorInfo>> _hotkeyActions = new Dictionary<int, Action<MonitorInfo>>();
-        private int _panicId = -1;
-        private int _nightModeToggleId = -1;
-        private int _gamerControlsId = -1;
 
         private readonly AppDetectionService _appDetectionService;
         private readonly MelanopicMonitorService? _melanopicService;
@@ -76,7 +70,6 @@ namespace Gloam.ViewModels
             UpdateService updateService,
             IToastService? toastService = null,
             MelanopicMonitorService? melanopicService = null,
-            HotkeyManager? hotkeyManager = null,
             AdvancedColorProfileMigrationService? profileModeService = null)
         {
             // Dependencies are constructed by the DI container (App.ConfigureServices)
@@ -90,7 +83,6 @@ namespace Gloam.ViewModels
             _nightModeService = nightModeService;
             _profileManager = profileManager;
             _dispwinRunner = dispwinRunner;
-            _hotkeyManager = hotkeyManager;
             _applyService = applyService;
             _appDetectionService = appDetectionService;
             _updateService = updateService;
@@ -138,7 +130,7 @@ namespace Gloam.ViewModels
             ExitCommand = new RelayCommand(() => Application.Current.Shutdown());
             RefreshCommand = new RelayCommand(RefreshMonitors);
             StartupCommand = new RelayCommand(ToggleStartup);
-            DashboardCommand = new RelayCommand(() => OpenDashboard());
+            DashboardCommand = new RelayCommand(OpenDashboard);
             CalibrateCommand = new RelayCommand(OpenCalibration);
             TrustCheckCommand = new RelayCommand(OpenTrustCheck);
             MatchDisplaysCommand = new RelayCommand(OpenMatchDisplays);
@@ -152,12 +144,6 @@ namespace Gloam.ViewModels
 
             // Apply saved profiles on startup
             ApplyAll();
-
-            if (_hotkeyManager != null)
-            {
-                RegisterHotkeys();
-                _hotkeyManager.HotkeyPressed += OnHotkeyPressed;
-            }
 
             NotifyIfUpdated();
             CheckForUpdates();
@@ -448,127 +434,6 @@ namespace Gloam.ViewModels
             }
         }
 
-        private void RegisterHotkeys()
-        {
-            if (_hotkeyManager == null) return;
-
-            // Win+Shift+F1 -> Gamma 2.2
-            int id22 = _hotkeyManager.Register(Key.F1, ModifierKeys.Windows | ModifierKeys.Shift);
-            if (id22 > 0) _hotkeyActions[id22] = m => ApplyProfile(m, GammaMode.Gamma22);
-
-            // Win+Shift+F2 -> Gamma 2.4
-            int id24 = _hotkeyManager.Register(Key.F2, ModifierKeys.Windows | ModifierKeys.Shift);
-            if (id24 > 0) _hotkeyActions[id24] = m => ApplyProfile(m, GammaMode.Gamma24);
-
-            // Win+Shift+F3 -> Default
-            int idDef = _hotkeyManager.Register(Key.F3, ModifierKeys.Windows | ModifierKeys.Shift);
-            if (idDef > 0) _hotkeyActions[idDef] = m => ApplyProfile(m, GammaMode.WindowsDefault);
-
-            // Panic: Win+Shift+F4
-            _panicId = _hotkeyManager.Register(Key.F4, ModifierKeys.Windows | ModifierKeys.Shift);
-
-            // Night Mode Toggle (Win+Shift+N) is not registered while night mode UI is hidden.
-
-            // Game Lab: Win+Shift+G. Opens the Dashboard's Game Lab without any game-process hook or overlay.
-            _gamerControlsId = _hotkeyManager.Register(Key.G, ModifierKeys.Windows | ModifierKeys.Shift);
-            if (_gamerControlsId <= 0)
-                Log.Info("TrayViewModel: Win+Shift+G registration failed; another app may own the shortcut.");
-        }
-
-        private void OnHotkeyPressed(int id)
-        {
-            if (id == _panicId)
-            {
-                PanicAll();
-                return;
-            }
-
-            if (id == _nightModeToggleId)
-            {
-                // Toggle night mode on/off. Not persisted across restarts (avoids a stuck-off
-                // footgun where night mode silently never returns); the toast makes the current
-                // state visible on every press.
-                bool nowDisabled = (_applyService.NightModeManuallyDisabled = !_applyService.NightModeManuallyDisabled);
-                ApplyAll(); // Re-apply all calibrations with night mode toggled
-                _toastService?.Show("Gloam",
-                    nowDisabled ? "Night warmth disabled - day mode" : "Night warmth enabled",
-                    nowDisabled ? ToastKind.Info : ToastKind.Success);
-                return;
-            }
-
-            if (id == _gamerControlsId)
-            {
-                ToggleGameLab();
-                return;
-            }
-
-            if (_hotkeyActions.TryGetValue(id, out var action))
-            {
-                var monitor = GetFocusedMonitor();
-                if (monitor != null)
-                {
-                    action(monitor);
-                }
-                else
-                {
-                    // #18: previously this dropped the apply silently. Tell the user why
-                    // nothing changed instead.
-                    _toastService?.Show("Gloam", "No monitor under cursor", ToastKind.Warning);
-                }
-            }
-        }
-
-        private MonitorInfo? GetFocusedMonitor()
-        {
-            // A global hotkey should act on the monitor the user is pointing at: the
-            // mouse cursor. The focused window's monitor is only the fallback - using
-            // it first meant the hotkey always hit wherever the active window lived
-            // (usually the primary), regardless of where the user actually was.
-            IntPtr hMonitor = IntPtr.Zero;
-            if (User32.GetCursorPos(out var cursor))
-            {
-                hMonitor = User32.MonitorFromPoint(cursor, User32.MONITOR_DEFAULTTONEAREST);
-            }
-            if (hMonitor == IntPtr.Zero)
-            {
-                IntPtr hwnd = User32.GetForegroundWindow();
-                if (hwnd == IntPtr.Zero) return null;
-                hMonitor = User32.MonitorFromWindow(hwnd, User32.MONITOR_DEFAULTTONEAREST);
-            }
-
-            // First try handle identity (cheap), but HMONITOR values captured at DXGI
-            // enumeration go stale after display-configuration changes while the
-            // window's handle is current - so fall back to matching the monitor's
-            // desktop bounds, which are stable across re-enumeration.
-            foreach (var item in TrayItems)
-            {
-                if (item is MonitorViewModel vm && vm.Model.HMonitor == hMonitor)
-                {
-                    return vm.Model;
-                }
-            }
-
-            if (User32.TryGetMonitorBounds(hMonitor, out var rect))
-            {
-                foreach (var item in TrayItems)
-                {
-                    if (item is MonitorViewModel vm)
-                    {
-                        var b = vm.Model.MonitorBounds;
-                        if (b.Left == rect.Left && b.Top == rect.Top &&
-                            b.Right == rect.Right && b.Bottom == rect.Bottom)
-                        {
-                            Log.Info($"TrayViewModel: focused monitor matched by bounds (stale HMONITOR) for {vm.Model.FriendlyName}");
-                            return vm.Model;
-                        }
-                    }
-                }
-            }
-
-            Log.Info($"TrayViewModel: no focused monitor match for HMONITOR {hMonitor} among {TrayItems.OfType<MonitorViewModel>().Count()} monitors");
-            return null;
-        }
-
         // Debounce sequence for display-change/resume events. Windows fires
         // WM_DISPLAYCHANGE in bursts during HDR mode transitions; without debouncing,
         // each burst event queued its own RefreshMonitors+ApplyAll, and the overlapping
@@ -658,7 +523,7 @@ namespace Gloam.ViewModels
             : "Resume Game Mode";
 
         // Pausing from the tray is hidden; the item only appears as "Resume Game Mode"
-        // so Game Mode can come back after safe mode (Win+Shift+F4) paused it.
+        // so a Game Mode that was paused earlier (saved in settings) can come back.
         private void UpdateGameModeItem()
         {
             if (_gameModeItem == null) return;
@@ -685,14 +550,6 @@ namespace Gloam.ViewModels
 
         private void CancelPendingForegroundPolicy()
             => _gamerModeCoordinator.CancelPendingForeground();
-
-        private void ApplyProfile(MonitorInfo monitor, GammaMode mode)
-        {
-            RequestApply(monitor, mode);
-
-            // Refresh to update checkmarks
-            RefreshMonitors();
-        }
 
         public void RequestApply(
             MonitorInfo monitor,
@@ -749,32 +606,6 @@ namespace Gloam.ViewModels
             }
         }
 
-        private void PanicAll()
-        {
-            CancelPendingForegroundPolicy();
-            _applyService.NightModeManuallyDisabled = true;
-            _applyService.UpdateBlockedMonitors(new HashSet<IntPtr>());
-            _applyService.UpdateActiveGamerSessions(Array.Empty<GamerSessionAssignment>());
-            if (_settingsManager.GamerModeEnabled)
-            {
-                if (!_gamerModeCoordinator.TrySetEnabled(false))
-                    _gamerModeCoordinator.EmergencySuspend();
-            }
-            else
-            {
-                _gamerModeCoordinator.EmergencySuspend();
-            }
-            UpdateGameModeItem();
-            _applyService.ClearAll(TrayItems.OfType<MonitorViewModel>().Select(vm => vm.Model));
-            // #22: replaced a parentless MessageBox.Show (called from the hotkey hook thread,
-            // which could appear behind other windows / on the wrong monitor) with a themed,
-            // non-modal toast. It confirms the recovery without stealing focus.
-            _toastService?.Show(
-                "Gloam safe mode",
-                "Gamma cleared. Game Mode is paused.",
-                ToastKind.Warning);
-        }
-
         private ActionViewModel? _startupItem;
         private ActionViewModel? _gameModeItem;
 
@@ -798,7 +629,7 @@ namespace Gloam.ViewModels
             }
         }
 
-        private DashboardWindow OpenDashboard()
+        private void OpenDashboard()
         {
             var dashboard = Application.Current.Windows.OfType<DashboardWindow>()
                 .FirstOrDefault();
@@ -823,23 +654,6 @@ namespace Gloam.ViewModels
             }
 
             dashboard.Activate();
-            return dashboard;
-        }
-
-        // Game Lab lives on the Dashboard. When the Dashboard has focus, the same chord
-        // dismisses it and returns to the game; otherwise it opens (or brings back) the
-        // Dashboard with the last foreground game offered in the picker.
-        private void ToggleGameLab()
-        {
-            var existing = Application.Current.Windows.OfType<DashboardWindow>()
-                .FirstOrDefault();
-            if (existing is { IsActive: true })
-            {
-                existing.Close();
-                return;
-            }
-
-            OpenDashboard().ShowGameLab(_gamerModeCoordinator.LastExternalForegroundApp);
         }
 
         private void OpenCalibration()
