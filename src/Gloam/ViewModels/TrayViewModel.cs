@@ -655,8 +655,7 @@ namespace Gloam.ViewModels
         {
             OnUiThread(() =>
             {
-                if (_gameModeItem != null)
-                    _gameModeItem.Header = GamerModeLabel();
+                UpdateGameModeItem();
 
                 if (_settingsManager.GamerModeEnabled)
                     _appDetectionService.Refresh();
@@ -666,6 +665,15 @@ namespace Gloam.ViewModels
         private string GamerModeLabel() => _gamerModeCoordinator.Enabled
             ? "Pause Game Mode"
             : "Resume Game Mode";
+
+        // Pausing from the tray is hidden; the item only appears as "Resume Game Mode"
+        // so Game Mode can come back after safe mode (Win+Shift+F4) paused it.
+        private void UpdateGameModeItem()
+        {
+            if (_gameModeItem == null) return;
+            _gameModeItem.Header = GamerModeLabel();
+            _gameModeItem.IsShown = !_gamerModeCoordinator.Enabled;
+        }
 
         private void ToggleGamerMode()
         {
@@ -765,8 +773,7 @@ namespace Gloam.ViewModels
             {
                 _gamerModeCoordinator.EmergencySuspend();
             }
-            if (_gameModeItem != null)
-                _gameModeItem.Header = GamerModeLabel();
+            UpdateGameModeItem();
             _applyService.ClearAll(TrayItems.OfType<MonitorViewModel>().Select(vm => vm.Model));
             // #22: replaced a parentless MessageBox.Show (called from the hotkey hook thread,
             // which could appear behind other windows / on the wrong monitor) with a themed,
@@ -937,6 +944,7 @@ namespace Gloam.ViewModels
                 TrayItems.Add(new ActionViewModel("Trust Check...", TrustCheckCommand));
                 TrayItems.Add(new ActionViewModel("Match Displays...", MatchDisplaysCommand));
                 _gameModeItem = new ActionViewModel(GamerModeLabel(), ToggleGamerModeCommand, staysOpenOnClick: true);
+                UpdateGameModeItem();
                 TrayItems.Add(_gameModeItem);
                 TrayItems.Add(new ActionViewModel("───────────", null));
 

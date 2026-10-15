@@ -12,6 +12,18 @@ namespace Gloam.ViewModels
             set => SetProperty(ref _header, value);
         }
 
+        private bool _isShown = true;
+
+        /// <summary>
+        /// Hides the item without rebuilding the menu, which would tear the items out
+        /// from under a still-open tray menu.
+        /// </summary>
+        public bool IsShown
+        {
+            get => _isShown;
+            set => SetProperty(ref _isShown, value);
+        }
+
         public ICommand? Command { get; }
         public bool IsSeparator { get; }
 

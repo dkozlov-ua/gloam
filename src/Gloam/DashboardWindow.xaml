@@ -427,11 +427,24 @@
                                                    Foreground="{DynamicResource ThemeTextDim}"
                                                    TextTrimming="CharacterEllipsis" MaxHeight="14"/>
                                     </StackPanel>
+                                    <!-- Only the resume action is offered: pausing is hidden, but
+                                         safe mode (Win+Shift+F4) still pauses Game Mode and needs a
+                                         way back. -->
                                     <Button Grid.Column="3" Content="{Binding GamerModeToggleLabel}"
                                             Command="{Binding ToggleGamerModeCommand}"
-                                            Style="{StaticResource BrutBtnPrimary}" Margin="15,0,0,0"
+                                            Margin="15,0,0,0"
                                             VerticalAlignment="Center" Padding="15,8"
-                                            AutomationProperties.AutomationId="ToggleGamerMode"/>
+                                            AutomationProperties.AutomationId="ToggleGamerMode">
+                                        <Button.Style>
+                                            <Style TargetType="Button" BasedOn="{StaticResource BrutBtnPrimary}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsGamerModeEnabled}" Value="True">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
                                 </Grid>
                             </Border>
 

@@ -9,6 +9,8 @@
         Visibility="Hidden">
 
     <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+
         <!-- Brutalist tray menu: hard square border, red highlight, follows the app palette -->
         <Style x:Key="ThemedContextMenu" TargetType="ContextMenu">
             <Setter Property="Background" Value="{DynamicResource MenuBackground}"/>
@@ -98,6 +100,8 @@
             <!-- Top-level toggles (Start with Windows, Refresh) keep the menu open;
                  items without the property (MonitorViewModel) bind to default false. -->
             <Setter Property="StaysOpenOnClick" Value="{Binding StaysOpenOnClick}" />
+            <!-- MonitorViewModel has no IsShown; the fallback keeps those items visible. -->
+            <Setter Property="Visibility" Value="{Binding IsShown, Converter={StaticResource BoolToVis}, FallbackValue=Visible}" />
             <Setter Property="Template" Value="{StaticResource SubMenuItemTemplate}"/>
         </Style>
 
