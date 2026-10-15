@@ -449,6 +449,31 @@ namespace Gloam.ViewModels
             }
         }
 
+        /// <summary>Monitor-card quick control: saves and applies a gamma mode.</summary>
+        internal void ApplyQuickGamma(DashboardItem item, GammaMode mode)
+            => ApplyQuickProfileChange(item, profile => profile.GammaMode = mode);
+
+        /// <summary>Monitor-card quick control: saves and applies a brightness preset.</summary>
+        internal void ApplyQuickBrightness(DashboardItem item, double brightness)
+            => ApplyQuickProfileChange(item, profile => profile.Brightness = Math.Clamp(brightness, 10, 100));
+
+        // Same save-then-apply path as the Settings window's Save & Close, so a quick
+        // change keeps every other saved adjustment (temperature, tint, RGB) intact.
+        private void ApplyQuickProfileChange(DashboardItem item, Action<MonitorProfileData> change)
+        {
+            MonitorInfo monitor = item.Model;
+            // A calibration is measuring this display with corrections bypassed; the
+            // Configure button is disabled for the same reason.
+            if (string.IsNullOrEmpty(monitor.MonitorDevicePath) || item.IsCalibrating) return;
+
+            MonitorProfileData profile = SettingsManager.GetMonitorProfile(monitor.MonitorDevicePath)
+                ?? new MonitorProfileData { GammaMode = monitor.CurrentGamma };
+            change(profile);
+            SettingsManager.SetMonitorProfile(monitor.MonitorDevicePath, profile);
+            _applyCallback(monitor, profile.GammaMode, profile.ToCalibrationSettings(), null);
+            Refresh(reEnumerate: false);
+        }
+
         public async Task PreviewTemperatureAsync(int? kelvin)
         {
             // Use cached monitors during preview to avoid repeated enumeration
@@ -560,7 +585,9 @@ namespace Gloam.ViewModels
                     CurrentTemperatureText = tempText,
                     // Mid-calibration the corrections are bypassed and the panel runs
                     // native; the card fades the (inactive) settings and shows a badge.
-                    IsCalibrating = CalibrationStateManager.IsDeviceInBypass(m)
+                    IsCalibrating = CalibrationStateManager.IsDeviceInBypass(m),
+                    QuickGammaRequested = ApplyQuickGamma,
+                    QuickBrightnessRequested = ApplyQuickBrightness
                 });
             }
 

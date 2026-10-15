@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:Gloam"
         xmlns:vm="clr-namespace:Gloam.ViewModels"
+        xmlns:sys="clr-namespace:System;assembly=System.Runtime"
         Title="Gloam - Dashboard"
         Width="1040" Height="760"
         MinWidth="820" MinHeight="600"
@@ -26,6 +27,61 @@
             </ResourceDictionary.MergedDictionaries>
 
             <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+
+            <!-- Monitor-card quick control. Tag carries "is this the current value" so one
+                 style serves every chip; the active chip is filled with the accent. -->
+            <Style x:Key="QuickChip" TargetType="Button">
+                <Setter Property="Foreground" Value="{DynamicResource ThemeText}"/>
+                <Setter Property="FontFamily" Value="{StaticResource DisplayFont}"/>
+                <Setter Property="FontWeight" Value="Bold"/>
+                <Setter Property="FontSize" Value="10"/>
+                <Setter Property="Padding" Value="7,3"/>
+                <Setter Property="MinWidth" Value="38"/>
+                <Setter Property="Margin" Value="4,0,0,0"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="SnapsToDevicePixels" Value="True"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="face" Background="Transparent"
+                                    BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter x:Name="cp" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                  TextElement.Foreground="{TemplateBinding Foreground}"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="face" Property="Background" Value="{DynamicResource ThemeHover}"/>
+                                    <Setter TargetName="face" Property="BorderBrush" Value="{DynamicResource ThemeAccent}"/>
+                                </Trigger>
+                                <Trigger Property="Tag">
+                                    <Trigger.Value>
+                                        <sys:Boolean>True</sys:Boolean>
+                                    </Trigger.Value>
+                                    <Setter TargetName="face" Property="Background" Value="{DynamicResource ThemeAccent}"/>
+                                    <Setter TargetName="face" Property="BorderBrush" Value="{DynamicResource ThemeAccent}"/>
+                                    <Setter TargetName="cp" Property="TextElement.Foreground" Value="{DynamicResource ThemeOnAccent}"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Opacity" Value="0.4"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- Quick controls are disabled while a calibration bypasses this display,
+                 like the Configure button. -->
+            <Style x:Key="QuickChipRow" TargetType="StackPanel">
+                <Setter Property="Orientation" Value="Horizontal"/>
+                <Setter Property="HorizontalAlignment" Value="Right"/>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsCalibrating}" Value="True">
+                        <Setter Property="IsEnabled" Value="False"/>
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
 
             <Style x:Key="GameLibraryRow" TargetType="ListBoxItem">
                 <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
@@ -84,7 +140,8 @@
 
             <!-- Monitor Template -->
             <DataTemplate DataType="{x:Type vm:DashboardItem}">
-                <Border Style="{StaticResource MonitorCard}">
+                <!-- Taller than the shared card height to fit the quick gamma/brightness rows. -->
+                <Border Style="{StaticResource MonitorCard}" Height="268">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
@@ -154,11 +211,31 @@
                                 </Style>
                             </StackPanel.Style>
                             <TextBlock Text="Gamma mode" Style="{StaticResource FieldLabel}"/>
-                            <TextBlock Text="{Binding CurrentGamma}" Style="{StaticResource MonoValue}" Margin="0,1,0,10"/>
+                            <Grid Margin="0,1,0,10">
+                                <TextBlock Text="{Binding CurrentGamma}" Style="{StaticResource MonoValue}" VerticalAlignment="Center"/>
+                                <StackPanel x:Name="QuickGammaButtons" Style="{StaticResource QuickChipRow}">
+                                    <Button Content="2.2" Style="{StaticResource QuickChip}" Tag="{Binding IsGamma22}"
+                                            Command="{Binding SetGammaCommand}" CommandParameter="Gamma22"
+                                            ToolTip="Apply gamma 2.2 to this display"/>
+                                    <Button Content="2.4" Style="{StaticResource QuickChip}" Tag="{Binding IsGamma24}"
+                                            Command="{Binding SetGammaCommand}" CommandParameter="Gamma24"
+                                            ToolTip="Apply gamma 2.4 to this display"/>
+                                </StackPanel>
+                            </Grid>
 
                             <TextBlock Text="Brightness" Style="{StaticResource FieldLabel}"/>
                             <ProgressBar Value="{Binding CurrentBrightness}" Height="6" Margin="0,3,0,3"/>
-                            <TextBlock Text="{Binding CurrentBrightness, StringFormat={}{0}%}" Style="{StaticResource MonoValue}" Margin="0,0,0,10"/>
+                            <Grid Margin="0,0,0,10">
+                                <TextBlock Text="{Binding CurrentBrightness, StringFormat={}{0}%}" Style="{StaticResource MonoValue}" VerticalAlignment="Center"/>
+                                <StackPanel x:Name="QuickBrightnessButtons" Style="{StaticResource QuickChipRow}">
+                                    <Button Content="100%" Style="{StaticResource QuickChip}" Tag="{Binding IsBrightness100}"
+                                            Command="{Binding SetBrightnessCommand}" CommandParameter="100"/>
+                                    <Button Content="75%" Style="{StaticResource QuickChip}" Tag="{Binding IsBrightness75}"
+                                            Command="{Binding SetBrightnessCommand}" CommandParameter="75"/>
+                                    <Button Content="50%" Style="{StaticResource QuickChip}" Tag="{Binding IsBrightness50}"
+                                            Command="{Binding SetBrightnessCommand}" CommandParameter="50"/>
+                                </StackPanel>
+                            </Grid>
 
                             <TextBlock Text="Color temp" Style="{StaticResource FieldLabel}"/>
                             <TextBlock Text="{Binding CurrentTemperatureText}" Style="{StaticResource MonoValue}" Margin="0,1,0,0"/>

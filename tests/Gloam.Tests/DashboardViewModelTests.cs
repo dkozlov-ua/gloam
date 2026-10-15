@@ -273,6 +273,80 @@ namespace Gloam.Tests
         }
 
         [Fact]
+        public void MonitorCardQuickControls_SaveAndApplyWithoutDroppingOtherAdjustments()
+        {
+            string originalData = AppPaths.DataDir;
+            string originalRoaming = AppPaths.RoamingDataDir;
+            string root = Path.Combine(Path.GetTempPath(), $"gloam-quick-card-{Guid.NewGuid():N}");
+            NightModeService? nightMode = null;
+            DashboardViewModel? viewModel = null;
+            try
+            {
+                AppPaths.UseDataDirectoriesForCurrentProcess(
+                    Path.Combine(root, "data"), Path.Combine(root, "roaming"));
+                var settings = new SettingsManager();
+                settings.SetMonitorProfile("monitor-a", new MonitorProfileData
+                {
+                    GammaMode = GammaMode.Gamma22,
+                    Brightness = 100,
+                    Temperature = -12
+                });
+                nightMode = new NightModeService(settings.NightMode);
+                var applied = new List<(GammaMode Mode, double Brightness)>();
+                viewModel = new DashboardViewModel(
+                    new MonitorManager(), settings, nightMode,
+                    new UpdateService(new DashboardUpdateManager()),
+                    (_, mode, calibration, _, _) => applied.Add((mode, calibration!.Brightness)));
+
+                DashboardItem card = MonitorCard("monitor-a", "6500K");
+                card.QuickGammaRequested = viewModel.ApplyQuickGamma;
+                card.QuickBrightnessRequested = viewModel.ApplyQuickBrightness;
+
+                card.SetGammaCommand.Execute("Gamma24");
+                card.SetBrightnessCommand.Execute("75");
+
+                MonitorProfileData stored = Assert.IsType<MonitorProfileData>(settings.GetMonitorProfile("monitor-a"));
+                Assert.Equal(GammaMode.Gamma24, stored.GammaMode);
+                Assert.Equal(75, stored.Brightness);
+                Assert.Equal(-12, stored.Temperature);
+                Assert.Equal(new[] { (GammaMode.Gamma24, 100.0), (GammaMode.Gamma24, 75.0) }, applied);
+
+                // Mid-calibration the display's corrections are bypassed; quick controls
+                // must not save or apply anything.
+                card.IsCalibrating = true;
+                card.SetBrightnessCommand.Execute("50");
+                Assert.Equal(75, settings.GetMonitorProfile("monitor-a")!.Brightness);
+                Assert.Equal(2, applied.Count);
+            }
+            finally
+            {
+                viewModel?.Dispose();
+                nightMode?.Dispose();
+                AppPaths.UseDataDirectoriesForCurrentProcess(originalData, originalRoaming);
+                try { Directory.Delete(root, recursive: true); } catch { }
+            }
+        }
+
+        [Fact]
+        public void DashboardItem_QuickControlSelectionTracksCurrentValues()
+        {
+            var card = MonitorCard("monitor-a", "6500K");
+            card.CurrentGamma = GammaMode.Gamma24;
+            card.CurrentBrightness = 75;
+
+            Assert.False(card.IsGamma22);
+            Assert.True(card.IsGamma24);
+            Assert.False(card.IsBrightness100);
+            Assert.True(card.IsBrightness75);
+            Assert.False(card.IsBrightness50);
+
+            card.CurrentGamma = GammaMode.WindowsDefault;
+            card.CurrentBrightness = 62;
+            Assert.False(card.IsGamma22 || card.IsGamma24);
+            Assert.False(card.IsBrightness100 || card.IsBrightness75 || card.IsBrightness50);
+        }
+
+        [Fact]
         public void SyncGamerDisplays_RemovesDisconnectedAndRefreshesFriendlyName()
         {
             var displays = new ObservableCollection<GamerDisplayOption>
