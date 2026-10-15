@@ -122,8 +122,7 @@ namespace Gloam.ViewModels
             _dispwinRunner.DispwinUnavailable += () =>
                 OnUiThread(() =>
                     NotificationRequested?.Invoke("ArgyllCMS Not Found",
-                        "Native gamma apply failed and dispwin.exe is unavailable.\n" +
-                        "Open Calibrate Display to download ArgyllCMS."));
+                        "Native gamma apply failed and dispwin.exe is unavailable."));
 
             _nightModeService.BlendChanged += (blend) =>
             {
@@ -170,18 +169,10 @@ namespace Gloam.ViewModels
             _updateCheckTimer.Tick += (_, _) => CheckForUpdates();
             _updateCheckTimer.Start();
 
-            // Trust-check reminder: opt-in (needs the probe attached and aimed, so it is a
-            // reminder toast, never an auto-run). Checked at startup and once a day.
-            CheckTrustCheckReminder();
-            _trustCheckReminderTimer = new DispatcherTimer
-            {
-                Interval = TimeSpan.FromHours(24)
-            };
-            _trustCheckReminderTimer.Tick += (_, _) => CheckTrustCheckReminder();
-            _trustCheckReminderTimer.Start();
+            // The trust-check reminder (CheckTrustCheckReminder) is not scheduled while the
+            // calibration, trust check and display matching UI is hidden: its toast would
+            // point at a hidden tool.
         }
-
-        private readonly DispatcherTimer _trustCheckReminderTimer;
 
         private void CheckTrustCheckReminder()
         {
@@ -940,9 +931,8 @@ namespace Gloam.ViewModels
             else
             {
                 TrayItems.Add(new ActionViewModel("Open Dashboard...", DashboardCommand));
-                TrayItems.Add(new ActionViewModel("Calibrate Display...", CalibrateCommand));
-                TrayItems.Add(new ActionViewModel("Trust Check...", TrustCheckCommand));
-                TrayItems.Add(new ActionViewModel("Match Displays...", MatchDisplaysCommand));
+                // Calibrate Display, Trust Check and Match Displays (CalibrateCommand,
+                // TrustCheckCommand, MatchDisplaysCommand) are hidden from the menu.
                 _gameModeItem = new ActionViewModel(GamerModeLabel(), ToggleGamerModeCommand, staysOpenOnClick: true);
                 UpdateGameModeItem();
                 TrayItems.Add(_gameModeItem);
