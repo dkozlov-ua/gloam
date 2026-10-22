@@ -17,7 +17,23 @@ Release, and installed apps auto-update from it.
    next launch.
 
 The version comes from the tag. `UpdateService.RepoUrl` and the CI upload target are both
-`github.com/halideworks/gloam` - keep them identical.
+`github.com/dkozlov-ua/gloam` (this fork) - keep them identical. The fork has no signing
+setup, so its releases are built and uploaded locally instead (see below).
+
+## Fork releases (unsigned, from a local build)
+
+The fork has no Azure Trusted Signing variables, so `build.yml` skips its release job on
+tag pushes there (validation still runs). Releases are packed on a local machine and
+uploaded with `vpk`, unsigned, so first runs of `Setup.exe` show a SmartScreen warning.
+
+1. Bump `<Version>` in `Gloam.csproj`, write `docs/release-notes/vX.Y.Z.md`, commit, push `main`.
+2. Build and pack: `.\package.ps1` (defaults to the project `<Version>`; output in `Releases\`).
+3. Upload, creating the tag on the current `main` commit:
+   ```powershell
+   vpk upload github --repoUrl https://github.com/dkozlov-ua/gloam --token (gh auth token) `
+       --outputDir Releases --publish --releaseName "Gloam X.Y.Z" --tag vX.Y.Z --targetCommitish main
+   gh release edit vX.Y.Z -R dkozlov-ua/gloam --notes-file docs/release-notes/vX.Y.Z.md
+   ```
 
 ## One-time setup (must exist before the first tag)
 

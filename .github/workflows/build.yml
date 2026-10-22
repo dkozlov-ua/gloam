@@ -70,6 +70,10 @@ jobs:
   build:
     runs-on: windows-latest
     needs: validate
+    # A tag build can only publish a signed release where the Azure signing variables exist.
+    # Repos without them (e.g. a fork) upload releases from a local build instead (see
+    # RELEASE.md), so skip rather than fail at azure/login. PR/dispatch runs always build.
+    if: ${{ !startsWith(github.ref, 'refs/tags/v') || vars.AZURE_CLIENT_ID != '' }}
     permissions:
       contents: write   # publish GitHub Releases
       id-token: write   # OIDC token for azure/login (no client secret stored)

@@ -1,5 +1,5 @@
 param(
-    [string]$ExpectedRepoUrl = "https://github.com/halideworks/gloam",
+    [string]$ExpectedRepoUrl = "https://github.com/dkozlov-ua/gloam",
     [string]$ExpectedPackId = "GloamApp"
 )
 
