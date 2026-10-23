@@ -94,8 +94,11 @@ if ($LASTEXITCODE -ne 0) { throw "gh release create failed ($LASTEXITCODE)" }
 Invoke-Git fetch --quiet origin --tags | Out-Null
 
 # What the app will verify the download against is GitHub's own digest of the
-# asset; check that it is the zip that was built.
-$digest = (& gh release view $tag --repo $repo --json assets -q '.assets[] | select(.name | endswith(".zip")) | .digest')
+# asset; check that it is the zip that was built. Parsed here rather than with
+# gh's -q: Windows PowerShell 5.1 strips the double quotes inside a jq filter on
+# its way to a native command, and gh then rejects the filter.
+$assets = (& gh release view $tag --repo $repo --json assets | ConvertFrom-Json).assets
+$digest = @($assets | Where-Object { $_.name -eq "Gloam-$Version.zip" } | ForEach-Object { $_.digest })[0]
 if ($digest -ne "sha256:$sha256") {
     Write-Warning "GitHub reports the asset as '$digest', but the zip built here is sha256:$sha256"
     exit 1
