@@ -20,7 +20,7 @@
     <!-- The one version. X.Y.Z only: Check for Updates compares it with the latest
          release's vX.Y.Z tag, package.ps1 writes it into the package, and publish.ps1
          refuses to publish a tag that disagrees with it. -->
-    <Version>1.10.8</Version>
+    <Version>1.11.0</Version>
     <AssemblyVersion>$(Version).0</AssemblyVersion>
     <FileVersion>$(Version).0</FileVersion>
     <InformationalVersion>$(Version)</InformationalVersion>
