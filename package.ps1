@@ -1,17 +1,33 @@
+<#
+    package.ps1 - build a release package of Gloam.
 
+      .\package.ps1                     the <Version> in src\Gloam\Gloam.csproj
+      .\package.ps1 -Version 1.2.0      another one (publish.ps1 passes it)
+      ... -OutDir <dir>                 somewhere other than Releases\ (inside the repo)
+
+    Writes, under OutDir (Releases\ by default, gitignored):
+
+      Gloam-X.Y.Z\        the package, staged: what install.ps1 installs
+      Gloam-X.Y.Z.zip     the same, zipped - the one asset a GitHub release carries
+
+    WHAT GOES IN is a self-contained, multi-file `dotnet publish` of the app, the
+    bundled ArgyllCMS (downloaded and checked against a pinned SHA-256), README,
+    LICENSE and THIRD_PARTY_NOTICES, and install.ps1. Two files are the package's
+    own:
+
+      VERSION        the version, one line - what install.ps1 reports
+      manifest.txt   every other file in the package, one relative path per line -
+                     what install.ps1 copies, and what the NEXT install reads to
+                     know which files are its own to replace or delete
+
+    The staged package is checked by scripts\Test-PublishOutput.ps1 (required
+    files, then a launch smoke test against an isolated data folder) before the
+    manifest and the zip are written, so a package that cannot start is never
+    built.
+#>
 param(
-    # Semantic version for this build. CI passes the tag (e.g. 1.2.0); local runs default
-    # to the project <Version> so Velopack's installed package version and the visible app
-    # version do not drift apart.
     [string]$Version = "",
-
-    # CI uses -PublishOnly to produce the publish dir + bundled assets, then runs
-    # 'vpk download/pack/upload' itself (with Azure signing). Local runs omit it to get a
-    # ready-to-test Setup.exe + portable zip.
-    [switch]$PublishOnly,
-
-    [string]$PublishDir = "publish",
-    [string]$ReleaseDir = "Releases"
+    [string]$OutDir = "Releases"
 )
 
 $ErrorActionPreference = "Stop"
@@ -76,7 +92,7 @@ function Download-Argyll {
 
     # Verify integrity BEFORE extracting. Never run Expand-Archive on unverified content,
     # and never trust a pre-existing cached zip or extract dir - a poisoned cache in the
-    # build workspace would otherwise be bundled into a signed release. Fail closed.
+    # build workspace would otherwise be bundled into a release. Fail closed.
     $actualHash = (Get-FileHash -LiteralPath $argyllZip -Algorithm SHA256).Hash
     if ($actualHash -ne $argyllSha256) {
         throw "Argyll archive integrity check failed (SHA-256 $actualHash). Delete '$argyllZip' and retry."
@@ -95,11 +111,15 @@ function Download-Argyll {
     return $root
 }
 
+function Get-PackageFiles([string]$Root) {
+    $prefix = $Root.TrimEnd('\') + '\'
+    return @(Get-ChildItem -LiteralPath $Root -Recurse -File -Force |
+             ForEach-Object { $_.FullName.Substring($prefix.Length) } |
+             Sort-Object)
+}
+
 # --- Execution ---
 
-# 1. Publish self-contained and MULTI-FILE. Velopack needs a normal publish directory,
-#    not PublishSingleFile=true: its delta and extract machinery operate on individual
-#    files, and it lays its own Update.exe alongside the app exe.
 $repoRoot = (Resolve-Path -LiteralPath $PSScriptRoot).Path
 $projectPath = Join-Path $repoRoot $projectPath
 if ([string]::IsNullOrWhiteSpace($Version)) {
@@ -109,62 +129,63 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
         throw "Version was not provided and no <Version> was found in $projectPath."
     }
 }
-$PublishDir = Remove-RepoChildDirectoryIfExists $PublishDir "Publish directory"
-$ReleaseDir = Resolve-RepoChildPath $ReleaseDir "Release directory"
+$Version = $Version.Trim() -replace '^v', ''
+if ($Version -notmatch '^\d+\.\d+\.\d+$') {
+    throw "Version '$Version' is not X.Y.Z - Check for Updates compares releases by those three numbers and nothing else."
+}
+
+$OutDir = Resolve-RepoChildPath $OutDir "Output directory"
+$name = "Gloam-$Version"
+$stage = Remove-RepoChildDirectoryIfExists (Join-Path $OutDir $name) "Package staging directory"
+$zip = Join-Path $OutDir "$name.zip"
 $argyllZip = Resolve-RepoChildPath $argyllZip "Argyll cache archive"
 $argyllExtractDir = Resolve-RepoChildPath $argyllExtractDir "Argyll extract directory"
 
+# 1. Publish self-contained and MULTI-FILE, straight into the staging folder. Multi-file
+#    rather than PublishSingleFile: the bundled ArgyllCMS tools, the ICM templates and
+#    install.ps1 sit beside Gloam.exe anyway, and a single-file host extracts its native
+#    parts to a temp folder on every launch.
 Write-Host "--- Publishing (self-contained, multi-file) v$Version ---"
-dotnet publish $projectPath -c Release -r win-x64 --self-contained true --output $PublishDir `
+dotnet publish $projectPath -c Release -r win-x64 --self-contained true --output $stage `
     /p:Version=$Version `
     /p:DebugType=None
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed ($LASTEXITCODE)" }
 
-# 2. Bundle docs + ArgyllCMS INTO the publish dir so vpk packages them as part of the app.
-#    (ICM templates are already copied to the output by the csproj.)
-Copy-Item -LiteralPath (Join-Path $repoRoot "README.md") -Destination $PublishDir
-Copy-Item -LiteralPath (Join-Path $repoRoot "LICENSE.txt") -Destination $PublishDir
-Copy-Item -LiteralPath (Join-Path $repoRoot "THIRD_PARTY_NOTICES.txt") -Destination $PublishDir
+# 2. Bundle docs, ArgyllCMS and the installer. (ICM templates are already copied to the
+#    output by the csproj.)
+Copy-Item -LiteralPath (Join-Path $repoRoot "README.md") -Destination $stage
+Copy-Item -LiteralPath (Join-Path $repoRoot "LICENSE.txt") -Destination $stage
+Copy-Item -LiteralPath (Join-Path $repoRoot "THIRD_PARTY_NOTICES.txt") -Destination $stage
+Copy-Item -LiteralPath (Join-Path $repoRoot "install.ps1") -Destination $stage
 
 $argyllRoot = Download-Argyll
-$bundleRoot = Join-Path $PublishDir "argyll_cache\$argyllVersion"
+$bundleRoot = Join-Path $stage "argyll_cache\$argyllVersion"
 Write-Host "Bundling $argyllVersion from $argyllRoot"
 New-Item -ItemType Directory -Path (Split-Path $bundleRoot) -Force | Out-Null
 Copy-Item -LiteralPath $argyllRoot -Destination $bundleRoot -Recurse
 
-& (Join-Path $repoRoot "scripts\Test-PublishOutput.ps1") -PublishDir $PublishDir -ArgyllVersion $argyllVersion
+$utf8 = New-Object Text.UTF8Encoding($false)
+[IO.File]::WriteAllText((Join-Path $stage "VERSION"), "$Version`n", $utf8)
 
-if ($PublishOnly) {
-    Write-Host "`nPublish-only complete: '$PublishDir' is ready for 'vpk pack'."
-    return
+# 3. Does it start. The launch smoke runs Gloam.exe from the staging folder, so the
+#    file list is taken before it and must be the same after: anything the smoke
+#    leaves there would otherwise ship.
+$files = Get-PackageFiles $stage
+& (Join-Path $repoRoot "scripts\Test-PublishOutput.ps1") -PublishDir $stage -ArgyllVersion $argyllVersion
+$after = Get-PackageFiles $stage
+$extra = @(Compare-Object -ReferenceObject $files -DifferenceObject $after | ForEach-Object { $_.InputObject })
+if ($extra.Count -gt 0) {
+    throw "The launch smoke changed the package's files:`n$($extra -join "`n")"
 }
 
-# 3. Ensure the Velopack CLI (vpk) is on PATH.
-if (-not (Get-Command vpk -ErrorAction SilentlyContinue)) {
-    Write-Host "Installing Velopack CLI (vpk)..."
-    dotnet tool install -g vpk | Out-Null
-    $env:PATH = "$env:PATH;$env:USERPROFILE\.dotnet\tools"
-}
+# 4. The manifest, then the zip.
+[IO.File]::WriteAllText((Join-Path $stage "manifest.txt"), (($files -join "`n") + "`n"), $utf8)
 
-# 4. Pack: emits GloamApp-win-Setup.exe, a portable zip, and (delta) nupkgs in $ReleaseDir.
-#    Local builds are unsigned; CI re-packs with --azureTrustedSignFile (see build.yml).
-#    NOTE: packId is "GloamApp" (not "Gloam") on purpose. Velopack installs into and OWNS
-#    %LocalAppData%\<packId>, and uninstall deletes that whole tree. The app's data dir is
-#    %LocalAppData%\Gloam (AppPaths.DataDir: settings, logs, calibration reports). Using a
-#    distinct packId keeps Velopack's install root off the user's data so an uninstall (or
-#    future Velopack cleanup) never destroys calibration data. The user-facing name is the
-#    packTitle below.
-Write-Host "--- Packing Velopack release v$Version ---"
-vpk pack `
-    --packId "GloamApp" `
-    --packVersion $Version `
-    --packDir $PublishDir `
-    --mainExe "Gloam.exe" `
-    --packTitle "Gloam" `
-    --packAuthors "David Torcivia" `
-    --outputDir $ReleaseDir `
-    --icon (Join-Path $repoRoot "src\Gloam\app.ico")
-if ($LASTEXITCODE -ne 0) { throw "vpk pack failed ($LASTEXITCODE)" }
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
+[IO.Compression.ZipFile]::CreateFromDirectory($stage, $zip, [IO.Compression.CompressionLevel]::Optimal, $false)
+$sha = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
 
-Write-Host "`nPackaging complete. Artifacts in '$ReleaseDir':"
-Get-ChildItem $ReleaseDir | Select-Object Name, Length | Format-Table
+Write-Host "`nPackaged $name ($($files.Count) files)"
+Write-Host "  $zip"
+Write-Host "  sha256 $sha"

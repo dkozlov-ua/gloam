@@ -29,8 +29,8 @@ dotnet test src/Gloam.sln -c Release
 This must pass before you open a pull request. Some tests drive real WPF on an STA thread,
 so they need a desktop session. They will not run headless.
 
-Before submitting, also check the build is warning-free under the strict configuration,
-which is what CI enforces:
+Before submitting, also check the build is warning-free under the strict configuration.
+There is no CI, so this check is yours to run:
 
 ```powershell
 dotnet build src/Gloam.sln -c Release -p:GloamStrictBuild=true
@@ -39,7 +39,7 @@ dotnet build src/Gloam.sln -c Release -p:GloamStrictBuild=true
 ## Golden fixtures
 
 Gloam's color math is pinned by *golden fixtures*: real measurement recordings from real
-panels, replayed through the live pipeline on every CI run and compared against committed
+panels, replayed through the live pipeline on every test run and compared against committed
 numbers with explicit tolerances. They live in
 [`tests/Gloam.Tests/Fixtures/Golden`](tests/Gloam.Tests/Fixtures/Golden), and the
 computation they pin is in `GoldenSampleBaseline`.

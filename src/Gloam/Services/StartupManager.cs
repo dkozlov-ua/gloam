@@ -86,7 +86,7 @@ namespace Gloam.Services
         /// Self-heal for a stale Run value: if the registered "Gloam" startup path points
         /// anywhere other than the current executable (e.g. a legacy pre-Velopack install
         /// under Program Files, or a since-deleted exe), rewrite it to the current exe.
-        /// Only an INSTALLED build may do this — a portable/dev run must never steal the
+        /// Only an INSTALLATION may do this — a dev run must never steal the
         /// startup registration from the real install (mirrors the isInstalled gate on
         /// <see cref="EnableByDefaultForFreshInstall"/>).
         /// </summary>

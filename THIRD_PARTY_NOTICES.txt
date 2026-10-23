@@ -21,12 +21,6 @@ against ArgyllCMS code. The ArgyllCMS binaries are redistributed unmodified.
 When updating the bundled ArgyllCMS version, update this notice, the pinned
 download hash in the source tree, and the packaged license/source reference.
 
-Velopack
---------
-
-Project: https://velopack.io/
-License: MIT
-
 CommunityToolkit.Mvvm
 ---------------------
 

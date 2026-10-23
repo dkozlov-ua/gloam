@@ -105,11 +105,11 @@ namespace Gloam
                 ApplyTrayMenuTheme();
 
                 var updateService = _serviceProvider.GetRequiredService<UpdateService>();
-                StartupManager.EnableByDefaultForFreshInstall(themeSettings, updateService.IsInstalled);
+                StartupManager.EnableByDefaultForFreshInstall(themeSettings, updateService.IsInstallation);
                 // Self-heal a stale HKCU Run value (e.g. one still pointing at a legacy
-                // pre-Velopack install) so boot never resurrects an old binary. Installed
-                // builds only: a portable/dev run must not steal the registration.
-                StartupManager.RepairIfStale(updateService.IsInstalled);
+                // install elsewhere) so boot never resurrects an old binary. Installations
+                // only: a dev run must not steal the registration.
+                StartupManager.RepairIfStale(updateService.IsInstallation);
 
                 // Repair legacy HDR profile characterization and, just as importantly,
                 // verify that Windows is consulting the list containing the saved profile.

@@ -17,15 +17,16 @@
     <RollForward>LatestMajor</RollForward>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <PublishTrimmed>false</PublishTrimmed>
-    <!-- Default version for local builds; CI overrides via /p:Version=<tag>. Velopack
-         compares the installed package version (vpk pack -v) to the release feed, so
-         keep this in sync with the tag the release is cut from. -->
+    <!-- The one version. X.Y.Z only: Check for Updates compares it with the latest
+         release's vX.Y.Z tag, package.ps1 writes it into the package, and publish.ps1
+         refuses to publish a tag that disagrees with it. -->
     <Version>1.10.8</Version>
     <AssemblyVersion>$(Version).0</AssemblyVersion>
     <FileVersion>$(Version).0</FileVersion>
     <InformationalVersion>$(Version)</InformationalVersion>
-    <!-- Velopack requires its hooks to run before WPF spins up, so the entry point is a
-         custom Main in Program.cs rather than the App.xaml-generated one. -->
+    <!-- The single-instance guard and the command-line modes run before WPF spins up,
+         so the entry point is a custom Main in Program.cs rather than the
+         App.xaml-generated one. -->
     <StartupObject>Gloam.Program</StartupObject>
   </PropertyGroup>
 
@@ -71,7 +72,6 @@
     <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="Hardcodet.NotifyIcon.Wpf" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
-    <PackageReference Include="Velopack" />
   </ItemGroup>
 
   <ItemGroup>

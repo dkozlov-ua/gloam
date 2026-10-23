@@ -15,7 +15,6 @@ using Gloam.Core;
 using Gloam.Core.Calibration;
 using Gloam.Services;
 using Gloam.Interop;
-using Velopack;
 
 namespace Gloam.ViewModels
 {
@@ -32,7 +31,6 @@ namespace Gloam.ViewModels
         private readonly GammaApplyService _applyService;
         private readonly UpdateService _updateService;
         private readonly IToastService? _toastService;
-        private readonly DispatcherTimer _updateCheckTimer;
 
         private readonly AppDetectionService _appDetectionService;
         private readonly MelanopicMonitorService? _melanopicService;
@@ -56,6 +54,7 @@ namespace Gloam.ViewModels
         public ICommand TrustCheckCommand { get; }
         public ICommand MatchDisplaysCommand { get; }
         public ICommand ExportDiagnosticsCommand { get; }
+        public ICommand CheckForUpdatesCommand { get; }
         public ICommand ToggleGamerModeCommand { get; }
         public string AppVersion => _updateService.DisplayVersion;
         public string TrayToolTipText => $"Gloam {AppVersion}";
@@ -136,6 +135,7 @@ namespace Gloam.ViewModels
             TrustCheckCommand = new RelayCommand(OpenTrustCheck);
             MatchDisplaysCommand = new RelayCommand(OpenMatchDisplays);
             ExportDiagnosticsCommand = new RelayCommand(ExportDiagnostics);
+            CheckForUpdatesCommand = new RelayCommand(CheckForUpdates);
             ToggleGamerModeCommand = new RelayCommand(ToggleGamerMode);
 
             RefreshMonitors();
@@ -151,16 +151,6 @@ namespace Gloam.ViewModels
             _profileCommandServer = new ProfileCommandServer(
                 selection => _gamerModeCoordinator.TrySetProfileSelection(selection));
             _profileCommandServer.Start();
-
-            NotifyIfUpdated();
-            CheckForUpdates();
-
-            _updateCheckTimer = new DispatcherTimer
-            {
-                Interval = UpdateService.SuccessfulCheckInterval
-            };
-            _updateCheckTimer.Tick += (_, _) => CheckForUpdates();
-            _updateCheckTimer.Start();
 
             // The trust-check reminder (CheckTrustCheckReminder) is not scheduled while the
             // calibration, trust check and display matching UI is hidden: its toast would
@@ -236,178 +226,98 @@ namespace Gloam.ViewModels
             matchWindow.Show();
         }
 
-        // The downloaded-and-ready update awaiting apply. Null until one is detected and
-        // fully downloaded. Scheduled silently for the next normal app exit/restart.
-        private UpdateInfo? _pendingUpdate;
-        private bool _updateScheduled;
-        private bool _updateCheckInProgress;
+        // Updates are checked on a click only (see UpdateService). One check-and-install
+        // flow at a time: a second click while the first is still talking to GitHub or
+        // downloading is ignored.
+        private bool _updateInProgress;
+
+        // Release notes are shown under the offer as plain text; a long body is cut so the
+        // dialog stays on screen. The full notes are on the release page.
+        private const int MaxNotesLength = 1500;
 
         private void CheckForUpdates()
             => SafeAsync.FireAndForget(CheckForUpdatesAsync, nameof(CheckForUpdates));
 
         private async Task CheckForUpdatesAsync()
         {
-            if (_updateCheckInProgress) return;
-            _updateCheckInProgress = true;
-
-            // The try/finally below owns the normal failure path and the in-progress flag;
-            // SafeAsync above is the backstop for anything it does not anticipate.
+            if (_updateInProgress) return;
+            _updateInProgress = true;
             try
             {
-                // Dev (F5) and the portable zip have no Velopack install to update.
-                if (!_updateService.IsInstalled) return;
-
-                bool pendingScheduled = false;
-                string? pendingVersion = null;
-                if (_updateService.TrySchedulePendingUpdateOnExit())
+                UpdateCheckResult check = await _updateService.CheckAsync();
+                switch (check.Status)
                 {
-                    _pendingUpdate = null;
-                    _updateScheduled = true;
-                    pendingScheduled = true;
-                    pendingVersion = _updateService.StateSnapshot.LastScheduledVersion;
-                    NotifyUpdateReady(pendingVersion, null);
-                    // Fall through: still check the feed so a release NEWER than the pending
-                    // package is discovered now (and replaces it) instead of only after the
-                    // pending update has been applied on some future restart.
-                }
-
-                var info = await _updateService.CheckForUpdatesAsync();
-                if (info == null)
-                {
-                    if (!pendingScheduled)
-                        NotifyIfUpdateFailuresPersist();
-                    return; // up to date, throttled, or failed and logged
-                }
-
-                string version = UpdateService.VersionLabel(info);
-                if (pendingScheduled)
-                {
-                    if (!UpdateService.IsNewerThanVersionLabel(info, pendingVersion))
-                    {
-                        Log.Info($"TrayViewModel: feed target {version} does not supersede the already-scheduled {pendingVersion ?? "unknown"}; keeping pending update.");
+                    case UpdateCheckStatus.Failed:
+                        ShowNotification("Update check failed", check.Message ?? "Unknown error.", ToastKind.Warning);
                         return;
-                    }
-
-                    Log.Info($"TrayViewModel: feed has {version}, newer than the scheduled {pendingVersion ?? "unknown"}; downloading the newer release.");
+                    case UpdateCheckStatus.UpToDate:
+                        ShowNotification("Gloam is up to date",
+                            $"{AppVersion} is the latest release.", ToastKind.Success);
+                        return;
                 }
-                NotifyUpdateAvailable(version);
 
-                // Download silently in the background - no prompt, no manual download step.
-                if (!await _updateService.DownloadUpdatesAsync(info))
+                UpdateRelease release = check.Release!;
+                Window? owner = DialogOwner();
+                if (owner == null) return;
+
+                string version = release.Version.ToString(3);
+                if (!_updateService.IsInstallation)
                 {
-                    NotifyIfUpdateFailuresPersist();
+                    ConfirmDialog.Info(owner, $"Gloam {version} is available",
+                        $"This copy of Gloam ({AppVersion}) is not an installation, so it cannot update itself. " +
+                        $"Install the release from {UpdateService.ReleasesPageUrl}.");
                     return;
                 }
 
-                _pendingUpdate = info;
-                _updateScheduled = _updateService.ApplyUpdatesOnExit(info);
-                Log.Info(_updateScheduled
-                    ? $"TrayViewModel: update {version} downloaded and scheduled for the next app restart."
-                    : $"TrayViewModel: update {version} downloaded but could not be scheduled yet; will retry on exit.");
-                NotifyUpdateReady(version, info);
+                string notes = release.Notes.Length > MaxNotesLength
+                    ? release.Notes[..MaxNotesLength].TrimEnd() + "\n\n..."
+                    : release.Notes;
+                string message = (notes.Length > 0 ? notes + "\n\n" : "") +
+                    $"Install closes Gloam, replaces it with {version} and starts it again. " +
+                    $"Settings and calibration data are kept.";
+                if (!ConfirmDialog.Confirm(owner, $"Gloam {version} is available", message,
+                        confirmLabel: "Install", cancelLabel: "Later"))
+                    return;
+
+                string package;
+                var busy = BusyDialog.Open(owner, $"Downloading Gloam {version}...");
+                try
+                {
+                    package = await _updateService.DownloadAsync(release);
+                }
+                finally
+                {
+                    busy.Dismiss();
+                }
+
+                _updateService.StartInstaller(package, release.Sha256);
+                Log.Info($"TrayViewModel: installing {release.Tag}; exiting for the installer.");
+                Application.Current.Shutdown();
             }
             catch (Exception ex)
             {
-                Log.Error($"TrayViewModel.CheckForUpdates: {ex.Message}");
+                Log.Error($"TrayViewModel.CheckForUpdates: {ex}");
+                ShowNotification("Update failed", ex.Message, ToastKind.Error);
             }
             finally
             {
-                _updateCheckInProgress = false;
+                _updateInProgress = false;
             }
         }
 
-        private void NotifyIfUpdated()
-        {
-            string? toVersion = _updateService.UpdatedToVersion;
-            if (string.IsNullOrWhiteSpace(toVersion)) return;
-            if (!_updateService.ShouldNotifyUpdated(toVersion)) return;
-
-            string? fromVersion = _updateService.UpdatedFromVersion;
-            string message = string.IsNullOrWhiteSpace(fromVersion)
-                ? $"Gloam is now running version {toVersion}."
-                : $"Updated from version {fromVersion} to {toVersion}.";
-
-            if (ShowNotification("Gloam updated", message, ToastKind.Success))
-                _updateService.MarkUpdatedNotified(toVersion);
-        }
-
-        private void NotifyUpdateAvailable(string version)
-        {
-            if (string.IsNullOrWhiteSpace(version)) return;
-            if (!_updateService.ShouldNotifyUpdateAvailable(version)) return;
-
-            // Warning kind: "you are on an outdated version" is an address-me notice in the
-            // toast design language (amber stripe), not a neutral status blip.
-            if (ShowNotification("Update available", $"Version {version} is available. Downloading in the background.", ToastKind.Warning))
-                _updateService.MarkUpdateAvailableNotified(version);
-        }
-
-        private void NotifyUpdateReady(string? version, UpdateInfo? info)
-        {
-            if (string.IsNullOrWhiteSpace(version)) return;
-            if (!_updateService.ShouldNotifyUpdateReady(version)) return;
-
-            string message = _updateScheduled
-                ? $"Version {version} is downloaded and will install when Gloam restarts."
-                : $"Version {version} is downloaded. Gloam will retry install scheduling on exit.";
-
-            bool shown = false;
-            if (info != null)
-            {
-                shown = ShowNotification("Update ready", message, ToastKind.Success, "Restart now", () =>
-                {
-                    try
-                    {
-                        _updateService.ApplyUpdatesAndRestart(info);
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Error($"TrayViewModel: restart update apply failed: {ex.Message}");
-                        _toastService?.Show("Update will retry later", "Gloam could not restart into the update yet.", ToastKind.Warning);
-                    }
-                });
-            }
-            else
-            {
-                shown = ShowNotification("Update ready", message, ToastKind.Success, "Exit now", () =>
-                {
-                    try { Application.Current.Shutdown(); }
-                    catch (Exception ex) { Log.Error($"TrayViewModel: update exit action failed: {ex.Message}"); }
-                });
-            }
-
-            if (shown)
-                _updateService.MarkUpdateReadyNotified(version);
-        }
-
-        private void NotifyIfUpdateFailuresPersist()
-        {
-            if (!_updateService.ShouldNotifyPersistentFailure())
-                return;
-
-            _toastService?.Show("Update will retry later",
-                "Gloam could not check for updates. It will keep trying in the background.",
-                ToastKind.Info);
-            _updateService.MarkFailureNotified();
-        }
+        // Dialogs from the tray go over whatever Gloam window is active, else the hidden
+        // tray host.
+        private static Window? DialogOwner()
+            => Application.Current?.Windows
+                .OfType<Window>()
+                .FirstOrDefault(w => w.IsActive && w.IsVisible)
+                ?? Application.Current?.MainWindow;
 
         private bool ShowNotification(string title, string message, ToastKind kind)
         {
             if (_toastService != null)
             {
                 _toastService.Show(title, message, kind);
-                return true;
-            }
-
-            NotificationRequested?.Invoke(title, message);
-            return true;
-        }
-
-        private bool ShowNotification(string title, string message, ToastKind kind, string actionLabel, Action action)
-        {
-            if (_toastService != null)
-            {
-                _toastService.Show(title, message, kind, actionLabel, action);
                 return true;
             }
 
@@ -674,10 +584,7 @@ namespace Gloam.ViewModels
                 lock (_activeMonitorsLock) { activeMonitors = _activeMonitors.ToList(); }
 
                 bool includeReports = false;
-                var owner = Application.Current?.Windows
-                    .OfType<Window>()
-                    .FirstOrDefault(w => w.IsActive && w.IsVisible)
-                    ?? Application.Current?.MainWindow;
+                var owner = DialogOwner();
                 if (owner != null)
                 {
                     includeReports = ConfirmDialog.Confirm(owner,
@@ -708,16 +615,8 @@ namespace Gloam.ViewModels
 
         public void Dispose()
         {
-            // If an update was downloaded but scheduling failed earlier, retry on the way
-            // out so the next launch can land on the new version.
-            if (_pendingUpdate != null && !_updateScheduled)
-            {
-                _updateScheduled = _updateService.ApplyUpdatesOnExit(_pendingUpdate);
-            }
-
             // Stops the night-mode and ramp-guard timers and unhooks the
             // foreground-window event hook.
-            _updateCheckTimer.Stop();
             _profileCommandServer.Dispose();
             CancelPendingForegroundPolicy();
             _settingsManager.GamerSettingsChanged -= OnGamerSettingsChanged;
@@ -796,6 +695,7 @@ namespace Gloam.ViewModels
             // Startup toggle with checkmark
             _startupItem = new ActionViewModel(StartupLabel(), StartupCommand, staysOpenOnClick: true);
             TrayItems.Add(_startupItem);
+            TrayItems.Add(new ActionViewModel("Check for Updates", CheckForUpdatesCommand));
             TrayItems.Add(new ActionViewModel("Export Diagnostics", ExportDiagnosticsCommand));
             TrayItems.Add(new ActionViewModel("Refresh", RefreshCommand, staysOpenOnClick: true));
             TrayItems.Add(new ActionViewModel("Exit", ExitCommand));

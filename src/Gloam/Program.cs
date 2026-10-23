@@ -5,14 +5,14 @@ using System.Threading;
 using Gloam.Core;
 using Gloam.Services;
 using Microsoft.Extensions.DependencyInjection;
-using Velopack;
 
 namespace Gloam
 {
     /// <summary>
-    /// Process entry point. Velopack requires its hook handling to run before the WPF
-    /// application starts, so the entry point is here (wired via &lt;StartupObject&gt; in the
-    /// csproj) rather than the Main that App.xaml would otherwise generate.
+    /// Process entry point. The smoke test, the <c>--profile-set</c> forwarding and the
+    /// single-instance guard all decide before WPF starts whether there is an app to run at
+    /// all, so the entry point is here (wired via &lt;StartupObject&gt; in the csproj) rather
+    /// than the Main that App.xaml would otherwise generate.
     /// </summary>
     public static class Program
     {
@@ -29,25 +29,6 @@ namespace Gloam
         [STAThread]
         public static int Main(string[] args)
         {
-            // MUST be the first thing that runs. On normal launches this is a no-op and
-            // returns immediately; when Velopack invokes the app with install / update /
-            // uninstall hook arguments it handles them and exits the process here, before
-            // any window is created.
-            try
-            {
-                VelopackApp.Build()
-                    .OnAfterInstallFastCallback(_ => ApplyFreshInstallStartupDefault())
-                    .OnBeforeUninstallFastCallback(_ => RemoveStartupRegistration())
-                    .OnFirstRun(_ => ApplyFreshInstallStartupDefault())
-                    .Run();
-            }
-            catch (Exception ex)
-            {
-                // The file log may not be initialised yet (App.OnStartup does that), so this
-                // is best-effort; a hook failure must not block the app from starting.
-                try { Log.Error("VelopackApp.Run failed: " + ex); } catch { }
-            }
-
             if (IsLaunchSmoke(args))
                 return RunLaunchSmoke(args);
 
@@ -60,7 +41,7 @@ namespace Gloam
 
             // Single-instance guard. Two trays would fight over the GPU gamma ramp and clobber
             // settings.json, so a second instance (manual launch, "start with Windows" race, or
-            // Velopack's update relaunch) must bow out. The "Local\" prefix scopes the mutex to
+            // an update's relaunch while the old process is still exiting) must bow out. The "Local\" prefix scopes the mutex to
             // the current login session, which is what we want for a per-user tray app.
             _singleInstanceMutex = new Mutex(initiallyOwned: true, name: "Local\\Gloam-SingleInstance", out bool createdNew);
             if (!createdNew)
@@ -92,31 +73,6 @@ namespace Gloam
                 ProfileCommandSendResult.NotSaved => ProfileCommandLine.ExitNotSaved,
                 _ => ProfileCommandLine.ExitInstanceUnreachable
             };
-        }
-
-        private static void ApplyFreshInstallStartupDefault()
-        {
-            try
-            {
-                var settings = new SettingsManager();
-                StartupManager.EnableByDefaultForFreshInstall(settings, isInstalled: true);
-            }
-            catch (Exception ex)
-            {
-                try { Log.Error("Fresh-install startup default failed: " + ex); } catch { }
-            }
-        }
-
-        private static void RemoveStartupRegistration()
-        {
-            try
-            {
-                StartupManager.TrySetStartupEnabled(false);
-            }
-            catch (Exception ex)
-            {
-                try { Log.Error("Uninstall startup cleanup failed: " + ex); } catch { }
-            }
         }
 
         private static bool IsLaunchSmoke(string[] args)

@@ -12,7 +12,6 @@ using System.Windows.Threading;
 using Gloam.Core;
 using Gloam.Services;
 using Gloam.ViewModels;
-using Velopack;
 using Xunit;
 
 namespace Gloam.Tests
@@ -42,7 +41,7 @@ namespace Gloam.Tests
 
                     var settings = new SettingsManager();
                     nightMode = new NightModeService(settings.NightMode);
-                    var update = new UpdateService(new PickerUpdateManager());
+                    var update = new UpdateService();
                     window = new DashboardWindow(
                         new MonitorManager(), settings, nightMode, update,
                         (_, _, _, _, _) => { })
@@ -405,19 +404,6 @@ namespace Gloam.Tests
             thread.Start();
             thread.Join();
             failure?.Throw();
-        }
-
-        private sealed class PickerUpdateManager : IUpdateManagerAdapter
-        {
-            public bool IsInstalled => false;
-            public bool IsPortable => true;
-            public SemanticVersion? CurrentVersion => null;
-            public VelopackAsset? UpdatePendingRestart => null;
-            public Task<UpdateInfo?> CheckForUpdatesAsync() => Task.FromResult<UpdateInfo?>(null);
-            public Task DownloadUpdatesAsync(UpdateInfo info) => Task.CompletedTask;
-            public void ApplyUpdatesAndRestart(UpdateInfo info) { }
-            public void WaitExitThenApplyUpdates(VelopackAsset asset, bool silent, bool restart) { }
-            public string? GetLocalPackagePath(VelopackAsset asset) => null;
         }
     }
 }

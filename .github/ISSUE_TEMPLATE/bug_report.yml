@@ -78,8 +78,7 @@ body:
     attributes:
       label: How did you install Gloam?
       options:
-        - "Setup.exe (recommended installer)"
-        - "Portable zip"
+        - "Release zip with install.ps1"
         - "Built from source"
     validations:
       required: true

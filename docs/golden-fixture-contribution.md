@@ -1,7 +1,7 @@
 # Contributing a golden fixture
 
 Gloam's calibration model is pinned by *golden fixtures*: real measurement sets, recorded
-from real panels, replayed through the live pipeline on every CI run and compared against
+from real panels, replayed through the live pipeline on every test run and compared against
 committed numbers with explicit tolerances. If a change to the color math would alter what
 Gloam computes from real panel data, the build fails and the diff is visible in review.
 
@@ -43,7 +43,7 @@ the flow in the README:
    characterization pass and a verification pass exist.
 
 The target you pick must be one of Gloam's standard targets, because the fixture stores it
-by name and CI resolves it back. `HDR Desktop PQ (sRGB gamut)` is the most useful for HDR
+by name and the replay resolves it back. `HDR Desktop PQ (sRGB gamut)` is the most useful for HDR
 panels; `sRGB (Gamma 2.2)` for SDR. Custom or native targets cannot be used.
 
 ## Step 2: find the two CSV recordings
@@ -107,12 +107,12 @@ The result is exactly four files:
 ```
 tests/Gloam.Tests/Fixtures/Golden/<your-panel>/
   manifest.json                    what was measured, and with what
-  baseline.json                    the numbers CI will hold you to
+  baseline.json                    the numbers the tests will hold you to
   native-measurements.csv          characterization pass recording
   verification-measurements.csv    verification pass recording
 ```
 
-CI discovers any directory under `Fixtures/Golden/` that contains both `manifest.json` and
+The replay discovers any directory under `Fixtures/Golden/` that contains both `manifest.json` and
 `baseline.json`. There is no registry to add yourself to.
 
 ## Step 4: check it passes
@@ -135,8 +135,8 @@ mistake on your part. Please send it.
 
 Either way works:
 
-- **Pull request** adding the fixture directory. Preferred, because it runs through CI on the way
-  in, so we both find out immediately whether it holds.
+- **Pull request** adding the fixture directory. Preferred, because the diff is reviewable and
+  the suite replays it on the way in, so we both find out immediately whether it holds.
 - **Issue** with the four files attached, if you would rather not open a PR. Say what the
   display is, what meter you used, and whether the run was HDR or SDR.
 

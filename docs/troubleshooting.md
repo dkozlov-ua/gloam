@@ -141,7 +141,7 @@ includes `app.log`; the line to look for is
 3. Close any other software that talks to the meter. DisplayCAL, the vendor's own
    calibration utility, and Gloam cannot hold the device at the same time.
 4. If ArgyllCMS itself is missing, start a calibration once and let Gloam download it. The
-   setup build bundles it, but a portable install may need the download.
+   release package bundles it, but a build run from source may need the download.
 
 ---
 
@@ -154,10 +154,12 @@ includes `app.log`; the line to look for is
 | Calibration reports | `%LOCALAPPDATA%\Gloam\reports` |
 | Measurement CSVs | `%LOCALAPPDATA%\Gloam\reports\measurements` |
 | Exported diagnostics bundles | `%LOCALAPPDATA%\Gloam\Diagnostics` |
-| Velopack install root | `%LOCALAPPDATA%\GloamApp` |
+| Installation | `%LOCALAPPDATA%\Programs\Gloam` |
+| Installer log | `%TEMP%\Gloam-install.log` |
 
-The two directories are separate on purpose: uninstalling Gloam removes `GloamApp` and
-leaves `Gloam`, so an uninstall never destroys your calibration data.
+The two directories are separate on purpose: uninstalling Gloam removes the package's files
+from `Programs\Gloam` and leaves `Gloam`, so an uninstall never destroys your calibration
+data.
 
 ---
 

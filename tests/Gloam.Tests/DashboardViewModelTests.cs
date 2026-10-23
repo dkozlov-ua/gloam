@@ -8,7 +8,6 @@ using System.Threading.Tasks;
 using Gloam.Core;
 using Gloam.Services;
 using Gloam.ViewModels;
-using Velopack;
 using Xunit;
 
 namespace Gloam.Tests
@@ -253,7 +252,7 @@ namespace Gloam.Tests
                 nightMode = new NightModeService(settings.NightMode);
                 viewModel = new DashboardViewModel(
                     new MonitorManager(), settings, nightMode,
-                    new UpdateService(new DashboardUpdateManager()), (_, _, _, _, _) => { });
+                    new UpdateService(), (_, _, _, _, _) => { });
 
                 viewModel.SuggestGamerApp("explorer.exe");
                 Assert.Equal(string.Empty, viewModel.GamerMode.NewAppText);
@@ -294,7 +293,7 @@ namespace Gloam.Tests
                 var applied = new List<(GammaMode Mode, double Brightness)>();
                 viewModel = new DashboardViewModel(
                     new MonitorManager(), settings, nightMode,
-                    new UpdateService(new DashboardUpdateManager()),
+                    new UpdateService(),
                     (_, mode, calibration, _, _) => applied.Add((mode, calibration!.Brightness)));
 
                 DashboardItem card = MonitorCard("monitor-a", "6500K");
@@ -374,18 +373,5 @@ namespace Gloam.Tests
             FriendlyName = devicePath,
             CurrentTemperatureText = temperatureText
         };
-
-        private sealed class DashboardUpdateManager : IUpdateManagerAdapter
-        {
-            public bool IsInstalled => false;
-            public bool IsPortable => true;
-            public SemanticVersion? CurrentVersion => null;
-            public VelopackAsset? UpdatePendingRestart => null;
-            public Task<UpdateInfo?> CheckForUpdatesAsync() => Task.FromResult<UpdateInfo?>(null);
-            public Task DownloadUpdatesAsync(UpdateInfo info) => Task.CompletedTask;
-            public void ApplyUpdatesAndRestart(UpdateInfo info) { }
-            public void WaitExitThenApplyUpdates(VelopackAsset asset, bool silent, bool restart) { }
-            public string? GetLocalPackagePath(VelopackAsset asset) => null;
-        }
     }
 }

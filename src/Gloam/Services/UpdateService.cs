@@ -1,708 +1,354 @@
 using System;
+using System.Diagnostics;
+using System.Globalization;
 using System.IO;
+using System.Net;
+using System.Net.Http;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using Gloam.Core;
-using Velopack;
-using Velopack.Locators;
-using Velopack.Sources;
 
 namespace Gloam.Services
 {
     /// <summary>
-    /// Wraps Velopack's <see cref="UpdateManager"/> against our GitHub Releases feed.
+    /// Updates on a click, from this repository's GitHub Releases.
     ///
-    /// Replaces the old model (poll the rolling 'latest' tag over the GitHub API, compare
-    /// a compile-time build timestamp, then open the releases page in a browser). Velopack
-    /// installs the app per-user under %LocalAppData%\GloamApp and applies updates by swapping
-    /// the current\ folder, so updates need no elevation and no manual download/extract.
-    /// (Note: the app's data dir %LocalAppData%\Gloam is intentionally distinct from the
-    /// install dir, so settings/logs/reports survive an uninstall.)
+    /// Nothing is checked by itself. "Check for Updates" in the tray asks GitHub for the
+    /// repository's latest release (<see cref="UpdateRepo"/>; a draft or a prerelease is never
+    /// "latest") and compares its vX.Y.Z tag with the running version. A newer one is offered
+    /// with its notes, and Install downloads its Gloam-X.Y.Z.zip, checks it against the SHA-256
+    /// GitHub itself publishes for the asset (its "digest"; a release without one is not
+    /// offered), and hands it to install.ps1 BESIDE Gloam.exe. That script waits for this
+    /// process to exit, puts the new version's files into this same folder and starts Gloam
+    /// again. The folder never moves, so the Start with Windows registration and the Start
+    /// menu shortcut never need repointing. See install.ps1 and RELEASE.md.
+    ///
+    /// The package is fetched only from under <see cref="DownloadUrlPrefix"/>, whatever the
+    /// answer names, and install.ps1 checks the hash again on a copy of its own, because the
+    /// download sits in the data folder, where the user's programs can write.
+    ///
+    /// Only an INSTALLATION updates itself: a folder with the install.ps1 and manifest.txt a
+    /// package carries. A dev run (F5, dotnet run) can check, and is told to install the
+    /// release instead.
+    ///
+    /// The request sends no token, so the repository must be public. A private one answers
+    /// 404, which is reported as such rather than as "there is no release".
     /// </summary>
     public class UpdateService
     {
-        internal static readonly TimeSpan SuccessfulCheckInterval = TimeSpan.FromMinutes(15);
-        internal static readonly TimeSpan FailedCheckRetryInterval = TimeSpan.FromMinutes(30);
-        internal static readonly TimeSpan FailureNotificationInterval = TimeSpan.FromHours(24);
-        private const int FailureNotificationThreshold = 3;
+        /// <summary>
+        /// The repository releases come from. publish.ps1 refuses to publish anywhere else,
+        /// because a mismatch would publish releases nothing finds.
+        /// </summary>
+        internal const string UpdateRepo = "dkozlov-ua/gloam";
+        internal const string LatestReleaseUrl = "https://api.github.com/repos/" + UpdateRepo + "/releases/latest";
+        internal const string DownloadUrlPrefix = "https://github.com/" + UpdateRepo + "/releases/download/";
+        internal const string ReleasesPageUrl = "https://github.com/" + UpdateRepo + "/releases";
 
-        // Canonical repo for the Gloam rebrand. The runtime feed here and the CI
-        // 'vpk upload github' target MUST point at the same repo, or CheckForUpdatesAsync
-        // 404s. The repo must actually be named 'gloam' (GitHub web-redirects the old
-        // name, but release assets resolve under the canonical name).
-        // Fork: updates come from this fork's releases so an upstream release can't
-        // silently replace the per-game brightness build.
-        private const string RepoUrl = "https://github.com/dkozlov-ua/gloam";
-        private const string ExpectedPackageId = "GloamApp";
+        // The files package.ps1 puts beside Gloam.exe that make a folder an installation.
+        internal const string ManifestFileName = "manifest.txt";
+        internal const string InstallerFileName = "install.ps1";
 
-        private readonly IUpdateManagerAdapter _manager;
-        private readonly Func<DateTimeOffset> _clock;
-        private readonly object _stateLock = new();
-        private UpdateState _state;
+        private static readonly HttpClient SharedClient = CreateClient(new HttpClientHandler());
+
+        private readonly HttpClient _client;
+        private readonly string _appDir;
 
         public UpdateService()
-            : this(new VelopackUpdateManagerAdapter(
-                new UpdateManager(new GithubSource(RepoUrl, accessToken: null, prerelease: false))))
+            : this(SharedClient, AppContext.BaseDirectory, RunningVersion())
         {
         }
 
-        internal UpdateService(IUpdateManagerAdapter manager)
-            : this(manager, () => DateTimeOffset.UtcNow)
+        internal UpdateService(HttpClient client, string appDir, Version? currentVersion)
         {
+            _client = client ?? throw new ArgumentNullException(nameof(client));
+            _appDir = appDir ?? throw new ArgumentNullException(nameof(appDir));
+            CurrentVersion = currentVersion;
         }
 
-        internal UpdateService(IUpdateManagerAdapter manager, Func<DateTimeOffset> clock)
-        {
-            _manager = manager ?? throw new ArgumentNullException(nameof(manager));
-            _clock = clock ?? throw new ArgumentNullException(nameof(clock));
-            _state = LoadState();
-            var previousInstalledVersion = _state.InstalledVersion;
-            var currentInstalledVersion = InstalledVersion;
-            if (_manager.IsInstalled &&
-                !string.IsNullOrWhiteSpace(previousInstalledVersion) &&
-                !string.IsNullOrWhiteSpace(currentInstalledVersion) &&
-                !string.Equals(previousInstalledVersion, currentInstalledVersion, StringComparison.OrdinalIgnoreCase))
-            {
-                UpdatedFromVersion = previousInstalledVersion;
-                UpdatedToVersion = currentInstalledVersion;
-            }
-            CaptureRuntimeState();
-            SaveState();
-        }
+        /// <summary>The running version (X.Y.Z), or null when the assembly carries none.</summary>
+        public Version? CurrentVersion { get; }
+
+        public string DisplayVersion => "v" + (CurrentVersion?.ToString(3) ?? "?");
 
         /// <summary>
-        /// True only when running from a Velopack install (%LocalAppData%\GloamApp\current).
-        /// False for `dotnet run` / F5 debugging and the portable zip, where there is no
-        /// install to update - every operation below is then a safe no-op.
+        /// True when Gloam runs from a folder install.ps1 owns, so it can update itself. Also
+        /// the gate for taking over the Start with Windows registration: a dev run must never
+        /// steal it from the real installation.
         /// </summary>
-        public bool IsInstalled => _manager.IsInstalled;
+        public bool IsInstallation =>
+            File.Exists(Path.Combine(_appDir, ManifestFileName)) &&
+            File.Exists(Path.Combine(_appDir, InstallerFileName));
 
-        /// <summary>The installed Velopack package version, or null for dev / portable runs.</summary>
-        public string? InstalledVersion => _manager.CurrentVersion?.ToString();
-
-        public string? UpdatedFromVersion { get; }
-
-        public string? UpdatedToVersion { get; }
-
-        /// <summary>
-        /// User-facing version label. Prefer Velopack's package version so the UI matches the
-        /// update feed's comparison basis; fall back to assembly metadata for dev / portable runs.
-        /// </summary>
-        public string DisplayVersion =>
-            "v" + (InstalledVersion
-                ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString(3)
-                ?? "?");
-
-        /// <summary>Current updater diagnostics snapshot; safe to serialize into support bundles.</summary>
-        public UpdateState StateSnapshot
+        internal static HttpClient CreateClient(HttpMessageHandler handler)
         {
-            get
-            {
-                lock (_stateLock) { return _state.Clone(); }
-            }
+            var client = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(10) };
+            // GitHub's API refuses requests without a User-Agent.
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("Gloam-UpdateCheck");
+            return client;
         }
 
-        /// <summary>
-        /// Schedules an already-downloaded Velopack update, if one is pending. This covers
-        /// interrupted shutdowns and any previous launch that downloaded but did not apply.
-        /// </summary>
-        public bool TrySchedulePendingUpdateOnExit()
+        public async Task<UpdateCheckResult> CheckAsync(CancellationToken cancellationToken = default)
         {
-            CaptureRuntimeState();
-            var pending = _manager.UpdatePendingRestart;
-            if (pending == null)
-            {
-                RecordResult("no-pending-update", error: null, target: null, clearFailures: false);
-                return false;
-            }
-
-            if (!IsNewerThanCurrent(pending, _manager.CurrentVersion))
-            {
-                // A staged package that is older-or-equal to the running version will never
-                // be applied; delete it so a superseded full .nupkg (100+ MB) does not
-                // linger in the packages directory forever.
-                TryDeleteStalePackage(pending);
-                RecordResult("ignored-non-newer-pending-update", error: null, target: pending, clearFailures: false);
-                return false;
-            }
-
-            if (ApplyUpdatesOnExit(pending))
-            {
-                RecordResult("pending-update-scheduled", error: null, target: pending, clearFailures: true);
-                return true;
-            }
-
-            return false;
-        }
-
-        /// <summary>Returns the pending update, or null if up to date / not installed / on error.</summary>
-        public async Task<UpdateInfo?> CheckForUpdatesAsync(bool force = false)
-        {
-            CaptureRuntimeState();
-            if (!_manager.IsInstalled)
-            {
-                Log.Info("UpdateService: update check skipped; app is not a Velopack install.");
-                RecordResult("skipped-not-installed", error: null, target: null, clearFailures: false);
-                return null;
-            }
-
-            if (!force && !ShouldCheckNow(out var skipReason))
-            {
-                Log.Info($"UpdateService: update check skipped; {skipReason}.");
-                // A throttle skip is not a check outcome: record it separately so it never
-                // overwrites LastResult (the last REAL result) in diagnostics.
-                RecordThrottleSkip(skipReason);
-                return null;
-            }
-
-            RecordCheckAttempt();
+            string json;
             try
             {
-                var current = _manager.CurrentVersion;
-                var info = await _manager.CheckForUpdatesAsync();
-                if (info == null)
+                using var request = new HttpRequestMessage(HttpMethod.Get, LatestReleaseUrl);
+                request.Headers.Accept.ParseAdd("application/vnd.github+json");
+                using var response = await _client.SendAsync(request, cancellationToken);
+                if (response.StatusCode == HttpStatusCode.NotFound)
                 {
-                    Log.Info($"UpdateService: no update available. installed={VersionLabel(current)}");
-                    RecordResult("up-to-date", error: null, target: null, clearFailures: true, checkSucceeded: true);
-                    return null;
+                    return UpdateCheckResult.Failed(
+                        $"GitHub has no published release of {UpdateRepo}, or the repository is private " +
+                        "(the check sends no token).");
                 }
-
-                if (!IsAcceptableRemoteUpdate(info, current))
+                if (!response.IsSuccessStatusCode)
                 {
-                    RecordResult("ignored-unacceptable-update", error: null, target: info.TargetFullRelease, clearFailures: true, checkSucceeded: true);
-                    return null;
+                    return UpdateCheckResult.Failed(
+                        $"GitHub answered {(int)response.StatusCode} {response.ReasonPhrase}.");
                 }
-
-                Log.Info($"UpdateService: update available. installed={VersionLabel(current)}, target={VersionLabel(info)}");
-                RecordResult("update-available", error: null, target: info.TargetFullRelease, clearFailures: true, checkSucceeded: true);
-                return info;
+                json = await response.Content.ReadAsStringAsync(cancellationToken);
             }
-            catch (Exception ex)
+            catch (HttpRequestException ex)
             {
-                Log.Error($"UpdateService: update check failed: {ex.Message}");
-                RecordResult("check-failed", error: ex.Message, target: null, clearFailures: false, countAsFailure: true);
+                return UpdateCheckResult.Failed($"Could not reach GitHub: {ex.Message}");
+            }
+            catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                return UpdateCheckResult.Failed("GitHub did not answer in time.");
+            }
+
+            var result = Evaluate(json, CurrentVersion);
+            Log.Info($"UpdateService: check: {result.Status} (running {DisplayVersion}" +
+                     (result.Release != null ? $", offering {result.Release.Tag}" : "") +
+                     (result.Message != null ? $"; {result.Message}" : "") + ")");
+            return result;
+        }
+
+        /// <summary>
+        /// What a latest-release answer means for <paramref name="current"/>. Pure, so the
+        /// rules (the tag's shape, the asset's name, origin and digest) are unit-testable.
+        /// </summary>
+        internal static UpdateCheckResult Evaluate(string json, Version? current)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+
+                string? tag = GetString(root, "tag_name");
+                Version? version = ParseTag(tag);
+                if (version == null)
+                    return UpdateCheckResult.Failed($"The latest release's tag '{tag}' is not vX.Y.Z.");
+
+                // What the latest release carries only matters when it would be installed.
+                if (current != null && version <= current)
+                    return UpdateCheckResult.UpToDate(tag!);
+
+                return FindPackage(root, tag!, version);
+            }
+            catch (JsonException ex)
+            {
+                return UpdateCheckResult.Failed($"The latest release could not be read: {ex.Message}");
+            }
+        }
+
+        private static readonly Regex TagPattern = new(@"^v(\d+)\.(\d+)\.(\d+)$", RegexOptions.CultureInvariant);
+        private static readonly Regex DigestPattern = new(@"^sha256:([0-9a-fA-F]{64})$", RegexOptions.CultureInvariant);
+
+        internal static Version? ParseTag(string? tag)
+        {
+            if (tag == null) return null;
+            var m = TagPattern.Match(tag);
+            if (!m.Success) return null;
+            try
+            {
+                return new Version(
+                    int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture),
+                    int.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture),
+                    int.Parse(m.Groups[3].Value, CultureInfo.InvariantCulture));
+            }
+            catch (OverflowException)
+            {
                 return null;
             }
         }
 
-        /// <summary>Downloads the update package (delta when possible) in the background.</summary>
-        public async Task<bool> DownloadUpdatesAsync(UpdateInfo info)
-        {
-            try
-            {
-                if (!IsAcceptableRemoteUpdate(info, _manager.CurrentVersion))
-                    return false;
+        internal static string PackageFileName(Version version) => $"Gloam-{version.ToString(3)}.zip";
 
-                await _manager.DownloadUpdatesAsync(info);
-                RecordResult("downloaded", error: null, target: info.TargetFullRelease, clearFailures: true, downloaded: true);
-                return true;
-            }
-            catch (Exception ex)
+        private static UpdateCheckResult FindPackage(JsonElement root, string tag, Version version)
+        {
+            string expectedName = PackageFileName(version);
+            if (root.TryGetProperty("assets", out var assets) && assets.ValueKind == JsonValueKind.Array)
             {
-                Log.Error($"UpdateService: update download failed: {ex.Message}");
-                RecordResult("download-failed", error: ex.Message, target: info.TargetFullRelease, clearFailures: false, countAsFailure: true);
-                return false;
+                foreach (var asset in assets.EnumerateArray())
+                {
+                    if (!string.Equals(GetString(asset, "name"), expectedName, StringComparison.Ordinal))
+                        continue;
+
+                    string? url = GetString(asset, "browser_download_url");
+                    if (url == null || !url.StartsWith(DownloadUrlPrefix, StringComparison.Ordinal))
+                        return UpdateCheckResult.Failed($"{tag}'s {expectedName} is not served from {DownloadUrlPrefix}.");
+
+                    var digest = DigestPattern.Match(GetString(asset, "digest") ?? "");
+                    if (!digest.Success)
+                    {
+                        return UpdateCheckResult.Failed(
+                            $"GitHub publishes no SHA-256 for {tag}'s {expectedName}, so it cannot be checked.");
+                    }
+
+                    long size = asset.TryGetProperty("size", out var s) && s.TryGetInt64(out long n) ? n : 0;
+                    return UpdateCheckResult.Available(new UpdateRelease(
+                        version,
+                        tag,
+                        (GetString(root, "body") ?? "").Trim(),
+                        url,
+                        digest.Groups[1].Value.ToLowerInvariant(),
+                        size));
+                }
             }
+
+            return UpdateCheckResult.Failed($"{tag} has no {expectedName}.");
         }
+
+        private static string? GetString(JsonElement element, string name)
+            => element.ValueKind == JsonValueKind.Object &&
+               element.TryGetProperty(name, out var value) &&
+               value.ValueKind == JsonValueKind.String
+                ? value.GetString()
+                : null;
 
         /// <summary>
-        /// Applies the downloaded update and restarts into the new version. Terminates the
-        /// current process, so callers must persist any state first.
+        /// Downloads the release's package into the data folder's Updates directory and
+        /// checks it against the release's SHA-256. Returns the path of the checked file;
+        /// throws when the download fails or does not match.
         /// </summary>
-        public void ApplyUpdatesAndRestart(UpdateInfo info)
+        public async Task<string> DownloadAsync(UpdateRelease release, CancellationToken cancellationToken = default)
         {
-            if (!IsNewerThanCurrent(info, _manager.CurrentVersion))
-                return;
+            ArgumentNullException.ThrowIfNull(release);
+            if (!release.DownloadUrl.StartsWith(DownloadUrlPrefix, StringComparison.Ordinal))
+                throw new InvalidOperationException($"Refusing to download from {release.DownloadUrl}.");
 
-            RecordResult("apply-and-restart", error: null, target: info.TargetFullRelease, clearFailures: true, scheduled: true);
-            _manager.ApplyUpdatesAndRestart(info);
+            // One package at a time: whatever an earlier attempt left is no longer wanted.
+            string dir = UpdatesDir;
+            if (Directory.Exists(dir))
+            {
+                foreach (string stale in Directory.EnumerateFiles(dir))
+                {
+                    try { File.Delete(stale); }
+                    catch (IOException) { }
+                    catch (UnauthorizedAccessException) { }
+                }
+            }
+            Directory.CreateDirectory(dir);
+
+            string path = Path.Combine(dir, PackageFileName(release.Version));
+            string partial = path + ".partial";
+            try
+            {
+                using (var response = await _client.GetAsync(release.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken))
+                {
+                    response.EnsureSuccessStatusCode();
+                    await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
+                    await using var target = new FileStream(partial, FileMode.Create, FileAccess.Write, FileShare.None);
+                    await source.CopyToAsync(target, cancellationToken);
+                }
+
+                string actual;
+                await using (var check = File.OpenRead(partial))
+                {
+                    actual = Convert.ToHexString(await SHA256.HashDataAsync(check, cancellationToken)).ToLowerInvariant();
+                }
+                if (!string.Equals(actual, release.Sha256, StringComparison.Ordinal))
+                {
+                    throw new InvalidDataException(
+                        $"The downloaded {PackageFileName(release.Version)} has SHA-256 {actual}, not {release.Sha256}.");
+                }
+
+                File.Move(partial, path, overwrite: true);
+                Log.Info($"UpdateService: downloaded {release.Tag} to {path} (sha256 {actual}).");
+                return path;
+            }
+            catch
+            {
+                try { File.Delete(partial); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+                throw;
+            }
         }
+
+        internal static string UpdatesDir => Path.Combine(AppPaths.DataDir, "Updates");
 
         /// <summary>
-        /// Schedules the downloaded update to be applied after the process exits, without
-        /// relaunching. Used after a background download and retried during normal shutdown
-        /// so the next launch can land on the new version. Safe to call when nothing is downloaded.
+        /// Starts this installation's install.ps1 on a checked package. It waits for this
+        /// process to exit, so the caller shuts the app down right after.
         /// </summary>
-        public bool ApplyUpdatesOnExit(UpdateInfo info)
-            => ApplyUpdatesOnExit(info.TargetFullRelease);
-
-        private bool ApplyUpdatesOnExit(VelopackAsset? asset)
+        public void StartInstaller(string packagePath, string sha256)
         {
-            try
-            {
-                if (!IsNewerThanCurrent(asset, _manager.CurrentVersion))
-                    return false;
+            if (!IsInstallation)
+                throw new InvalidOperationException($"{_appDir} is not an installation; it cannot update itself.");
 
-                _manager.WaitExitThenApplyUpdates(asset!, silent: true, restart: false);
-                RecordResult("scheduled-on-exit", error: null, target: asset, clearFailures: true, scheduled: true);
-                return true;
-            }
-            catch (Exception ex)
+            var psi = new ProcessStartInfo
             {
-                Log.Error($"UpdateService: scheduling apply-on-exit failed: {ex.Message}");
-                RecordResult("schedule-on-exit-failed", error: ex.Message, target: asset, clearFailures: false, countAsFailure: true);
-                return false;
-            }
+                FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),
+                    @"WindowsPowerShell\v1.0\powershell.exe"),
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = _appDir,
+            };
+            foreach (string arg in InstallerArguments(_appDir, packagePath, sha256, Environment.ProcessId))
+                psi.ArgumentList.Add(arg);
+
+            using var process = Process.Start(psi)
+                ?? throw new InvalidOperationException("powershell.exe did not start.");
+            Log.Info($"UpdateService: started {InstallerFileName} (pid {process.Id}) for {packagePath}.");
         }
 
-        public bool ShouldNotifyPersistentFailure()
+        internal static string[] InstallerArguments(string appDir, string packagePath, string sha256, int waitPid) =>
+        [
+            "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden",
+            "-File", Path.Combine(appDir, InstallerFileName),
+            "-Package", packagePath,
+            "-Sha256", sha256,
+            "-WaitPid", waitPid.ToString(CultureInfo.InvariantCulture),
+            "-Launch",
+            "-DeletePackage",
+        ];
+
+        private static Version? RunningVersion()
         {
-            lock (_stateLock)
-            {
-                if (_state.ConsecutiveFailures < FailureNotificationThreshold)
-                    return false;
-
-                if (!_state.LastFailureNotificationUtc.HasValue)
-                    return true;
-
-                return _clock() - _state.LastFailureNotificationUtc.Value >= FailureNotificationInterval;
-            }
-        }
-
-        public void MarkFailureNotified()
-        {
-            lock (_stateLock)
-            {
-                _state.LastFailureNotificationUtc = _clock();
-            }
-            SaveState();
-        }
-
-        public bool ShouldNotifyUpdateAvailable(string version)
-        {
-            if (string.IsNullOrWhiteSpace(version))
-                return false;
-
-            lock (_stateLock)
-            {
-                return !string.Equals(_state.LastUpdateAvailableNotificationVersion, version, StringComparison.OrdinalIgnoreCase);
-            }
-        }
-
-        public void MarkUpdateAvailableNotified(string version)
-        {
-            if (string.IsNullOrWhiteSpace(version))
-                return;
-
-            lock (_stateLock)
-            {
-                _state.LastUpdateAvailableNotificationVersion = version;
-            }
-            SaveState();
-        }
-
-        public bool ShouldNotifyUpdateReady(string version)
-        {
-            if (string.IsNullOrWhiteSpace(version))
-                return false;
-
-            lock (_stateLock)
-            {
-                return !string.Equals(_state.LastUpdateReadyNotificationVersion, version, StringComparison.OrdinalIgnoreCase);
-            }
-        }
-
-        public void MarkUpdateReadyNotified(string version)
-        {
-            if (string.IsNullOrWhiteSpace(version))
-                return;
-
-            lock (_stateLock)
-            {
-                _state.LastUpdateReadyNotificationVersion = version;
-            }
-            SaveState();
-        }
-
-        public bool ShouldNotifyUpdated(string version)
-        {
-            if (string.IsNullOrWhiteSpace(version))
-                return false;
-
-            lock (_stateLock)
-            {
-                return !string.Equals(_state.LastUpdatedNotificationVersion, version, StringComparison.OrdinalIgnoreCase);
-            }
-        }
-
-        public void MarkUpdatedNotified(string version)
-        {
-            if (string.IsNullOrWhiteSpace(version))
-                return;
-
-            lock (_stateLock)
-            {
-                _state.LastUpdatedNotificationVersion = version;
-            }
-            SaveState();
-        }
-
-        /// <summary>Version label for the pending update (e.g. "1.2.0").</summary>
-        public static string VersionLabel(UpdateInfo info)
-            => info.TargetFullRelease?.Version?.ToString() ?? "new version";
-
-        internal static bool IsNewerThanCurrent(UpdateInfo info, SemanticVersion? currentVersion)
-            => IsNewerThanCurrent(info.TargetFullRelease, currentVersion, info.IsDowngrade);
-
-        /// <summary>
-        /// True when the feed update targets a strictly newer version than the given version
-        /// label (e.g. the already-scheduled pending update's version). An unparseable or
-        /// missing label counts as "newer" so a feed hit is never dropped by bad state.
-        /// </summary>
-        internal static bool IsNewerThanVersionLabel(UpdateInfo info, string? versionLabel)
-        {
-            var target = info.TargetFullRelease?.Version;
-            if (target == null)
-                return false;
-
-            if (string.IsNullOrWhiteSpace(versionLabel) || !SemanticVersion.TryParse(versionLabel, out var current))
-                return true;
-
-            return target > current;
-        }
-
-        internal static bool IsAcceptableRemoteUpdate(UpdateInfo info, SemanticVersion? currentVersion)
-        {
-            if (!IsNewerThanCurrent(info, currentVersion))
-                return false;
-
-            var asset = info.TargetFullRelease!;
-            if (!string.Equals(asset.PackageId, ExpectedPackageId, StringComparison.Ordinal))
-            {
-                Log.Error($"UpdateService: refusing update for unexpected package id '{asset.PackageId ?? "unknown"}'.");
-                return false;
-            }
-
-            if (asset.Size <= 0)
-            {
-                Log.Error("UpdateService: refusing update with invalid package size.");
-                return false;
-            }
-
-            if (string.IsNullOrWhiteSpace(asset.SHA256) || asset.SHA256.Length != 64 || !IsHex(asset.SHA256))
-            {
-                Log.Error("UpdateService: refusing update with missing SHA-256 metadata.");
-                return false;
-            }
-
-            return true;
-        }
-
-        private static bool IsHex(string value)
-        {
-            foreach (char c in value)
-            {
-                bool digit = c >= '0' && c <= '9';
-                bool lower = c >= 'a' && c <= 'f';
-                bool upper = c >= 'A' && c <= 'F';
-                if (!digit && !lower && !upper)
-                    return false;
-            }
-
-            return true;
-        }
-
-        internal static bool IsNewerThanCurrent(VelopackAsset? asset, SemanticVersion? currentVersion, bool isDowngrade = false)
-        {
-            if (isDowngrade)
-            {
-                Log.Error($"UpdateService: refusing downgrade update to {VersionLabel(asset)}.");
-                return false;
-            }
-
-            var targetVersion = asset?.Version;
-            if (targetVersion == null)
-            {
-                Log.Error("UpdateService: refusing update with no target version.");
-                return false;
-            }
-
-            if (currentVersion != null && targetVersion <= currentVersion)
-            {
-                Log.Info($"UpdateService: ignoring non-newer update. installed={VersionLabel(currentVersion)}, target={targetVersion}");
-                return false;
-            }
-
-            return true;
-        }
-
-        private static string VersionLabel(SemanticVersion? version)
-            => version?.ToString() ?? "unknown";
-
-        private static string VersionLabel(VelopackAsset? asset)
-            => asset?.Version?.ToString() ?? "new version";
-
-        private void CaptureRuntimeState()
-        {
-            lock (_stateLock)
-            {
-                _state.IsInstalled = _manager.IsInstalled;
-                _state.IsPortable = _manager.IsPortable;
-                _state.InstalledVersion = InstalledVersion;
-                _state.AssemblyVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3);
-                _state.PendingRestartVersion = _manager.UpdatePendingRestart?.Version?.ToString();
-            }
-        }
-
-        private bool ShouldCheckNow(out string reason)
-        {
-            lock (_stateLock)
-            {
-                var lastAttempt = _state.LastCheckAttemptUtc;
-                if (!lastAttempt.HasValue)
-                {
-                    reason = "never checked";
-                    return true;
-                }
-
-                var interval = _state.ConsecutiveFailures > 0
-                    ? FailedCheckRetryInterval
-                    : SuccessfulCheckInterval;
-                var elapsed = _clock() - lastAttempt.Value;
-                if (elapsed >= interval)
-                {
-                    reason = $"last check was {elapsed:g} ago";
-                    return true;
-                }
-
-                reason = $"last check was {elapsed:g} ago; next retry after {interval:g}";
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// Best-effort delete of a staged package that can never be applied (older-or-equal
-        /// to the running version). Failure is non-fatal: the file is only disk waste.
-        /// </summary>
-        private void TryDeleteStalePackage(VelopackAsset? asset)
-        {
-            try
-            {
-                if (asset == null)
-                    return;
-
-                string? packagePath = _manager.GetLocalPackagePath(asset);
-                if (string.IsNullOrEmpty(packagePath) || !File.Exists(packagePath))
-                    return;
-
-                File.Delete(packagePath);
-                Log.Info($"UpdateService: deleted stale staged package {Path.GetFileName(packagePath)} ({VersionLabel(asset)}).");
-            }
-            catch (Exception ex)
-            {
-                Log.Info($"UpdateService: could not delete stale staged package: {ex.Message}");
-            }
-        }
-
-        private void RecordThrottleSkip(string reason)
-        {
-            lock (_stateLock)
-            {
-                _state.LastSkipReason = reason;
-            }
-            SaveState();
-        }
-
-        private void RecordCheckAttempt()
-        {
-            lock (_stateLock)
-            {
-                _state.LastCheckAttemptUtc = _clock();
-            }
-            SaveState();
-        }
-
-        private void RecordResult(
-            string result,
-            string? error,
-            VelopackAsset? target,
-            bool clearFailures,
-            bool countAsFailure = false,
-            bool checkSucceeded = false,
-            bool downloaded = false,
-            bool scheduled = false)
-        {
-            lock (_stateLock)
-            {
-                _state.LastResult = result;
-                if (error != null || clearFailures)
-                    _state.LastError = error;
-                _state.LastTargetVersion = target?.Version?.ToString();
-                _state.LastTargetFileName = target?.FileName;
-                _state.LastTargetSha256 = target?.SHA256;
-                _state.LastTargetSize = target?.Size;
-                _state.PendingRestartVersion = _manager.UpdatePendingRestart?.Version?.ToString();
-
-                if (clearFailures)
-                {
-                    _state.ConsecutiveFailures = 0;
-                }
-                else if (countAsFailure)
-                {
-                    _state.ConsecutiveFailures++;
-                }
-
-                if (checkSucceeded)
-                    _state.LastSuccessfulCheckUtc = _clock();
-
-                if (downloaded)
-                    _state.LastDownloadedVersion = target?.Version?.ToString();
-
-                if (scheduled)
-                    _state.LastScheduledVersion = target?.Version?.ToString();
-            }
-
-            SaveState();
-        }
-
-        private static string StateFilePath => Path.Combine(AppPaths.DataDir, "update-state.json");
-
-        private static UpdateState LoadState()
-        {
-            try
-            {
-                if (!File.Exists(StateFilePath))
-                    return new UpdateState();
-
-                return JsonSerializer.Deserialize<UpdateState>(File.ReadAllText(StateFilePath), JsonOptions)
-                    ?? new UpdateState();
-            }
-            catch (Exception ex)
-            {
-                Log.Info($"UpdateService: failed to load update state: {ex.Message}");
-                return new UpdateState();
-            }
-        }
-
-        private void SaveState()
-        {
-            try
-            {
-                Directory.CreateDirectory(AppPaths.DataDir);
-                UpdateState snapshot;
-                lock (_stateLock) { snapshot = _state.Clone(); }
-                string tempPath = StateFilePath + $".{Guid.NewGuid():N}.tmp";
-                File.WriteAllText(tempPath, JsonSerializer.Serialize(snapshot, JsonOptions));
-                File.Move(tempPath, StateFilePath, overwrite: true);
-            }
-            catch (Exception ex)
-            {
-                Log.Info($"UpdateService: failed to save update state: {ex.Message}");
-            }
-        }
-
-        private static readonly JsonSerializerOptions JsonOptions = new()
-        {
-            WriteIndented = true
-        };
-    }
-
-    internal interface IUpdateManagerAdapter
-    {
-        bool IsInstalled { get; }
-        bool IsPortable { get; }
-        SemanticVersion? CurrentVersion { get; }
-        VelopackAsset? UpdatePendingRestart { get; }
-        Task<UpdateInfo?> CheckForUpdatesAsync();
-        Task DownloadUpdatesAsync(UpdateInfo info);
-        void ApplyUpdatesAndRestart(UpdateInfo info);
-        void WaitExitThenApplyUpdates(VelopackAsset asset, bool silent, bool restart);
-        /// <summary>Local path the asset's package is staged at, or null when unknown.</summary>
-        string? GetLocalPackagePath(VelopackAsset asset);
-    }
-
-    internal sealed class VelopackUpdateManagerAdapter : IUpdateManagerAdapter
-    {
-        private readonly UpdateManager _manager;
-
-        public VelopackUpdateManagerAdapter(UpdateManager manager)
-        {
-            _manager = manager;
-        }
-
-        public bool IsInstalled => _manager.IsInstalled;
-        public bool IsPortable => _manager.IsPortable;
-        public SemanticVersion? CurrentVersion => _manager.CurrentVersion;
-        public VelopackAsset? UpdatePendingRestart => _manager.UpdatePendingRestart;
-        public Task<UpdateInfo?> CheckForUpdatesAsync() => _manager.CheckForUpdatesAsync();
-        public Task DownloadUpdatesAsync(UpdateInfo info) => _manager.DownloadUpdatesAsync(info);
-        public void ApplyUpdatesAndRestart(UpdateInfo info) => _manager.ApplyUpdatesAndRestart(info);
-        public void WaitExitThenApplyUpdates(VelopackAsset asset, bool silent, bool restart)
-            => _manager.WaitExitThenApplyUpdates(asset, silent, restart);
-
-        public string? GetLocalPackagePath(VelopackAsset asset)
-        {
-            try
-            {
-                // VelopackApp.Run() (and UpdateManager construction) establish the ambient
-                // locator; when it is not set (dev/portable runs) there is nothing staged.
-                if (!VelopackLocator.IsCurrentSet)
-                    return null;
-
-                string? packagesDir = VelopackLocator.Current.PackagesDir;
-                string? fileName = asset.FileName;
-                if (string.IsNullOrEmpty(packagesDir) || string.IsNullOrEmpty(fileName))
-                    return null;
-
-                return Path.Combine(packagesDir, fileName);
-            }
-            catch (Exception ex)
-            {
-                Log.Info($"UpdateService: could not resolve staged package path: {ex.Message}");
-                return null;
-            }
+            var v = Assembly.GetExecutingAssembly().GetName().Version;
+            return v == null ? null : new Version(v.Major, v.Minor, Math.Max(v.Build, 0));
         }
     }
 
-    public sealed class UpdateState
-    {
-        public bool IsInstalled { get; set; }
-        public bool IsPortable { get; set; }
-        public string? InstalledVersion { get; set; }
-        public string? AssemblyVersion { get; set; }
-        public string? PendingRestartVersion { get; set; }
-        public DateTimeOffset? LastCheckAttemptUtc { get; set; }
-        public DateTimeOffset? LastSuccessfulCheckUtc { get; set; }
-        public string? LastResult { get; set; }
-        /// <summary>Last throttle-skip reason. Kept separate so skips never mask LastResult.</summary>
-        public string? LastSkipReason { get; set; }
-        public string? LastError { get; set; }
-        public string? LastTargetVersion { get; set; }
-        public string? LastTargetFileName { get; set; }
-        public string? LastTargetSha256 { get; set; }
-        public long? LastTargetSize { get; set; }
-        public string? LastDownloadedVersion { get; set; }
-        public string? LastScheduledVersion { get; set; }
-        public string? LastUpdateAvailableNotificationVersion { get; set; }
-        public string? LastUpdateReadyNotificationVersion { get; set; }
-        public string? LastUpdatedNotificationVersion { get; set; }
-        public int ConsecutiveFailures { get; set; }
-        public DateTimeOffset? LastFailureNotificationUtc { get; set; }
+    /// <summary>A release that can be installed: its package, where it is and its SHA-256.</summary>
+    public sealed record UpdateRelease(
+        Version Version,
+        string Tag,
+        string Notes,
+        string DownloadUrl,
+        string Sha256,
+        long Size);
 
-        public UpdateState Clone() => new()
-        {
-            IsInstalled = IsInstalled,
-            IsPortable = IsPortable,
-            InstalledVersion = InstalledVersion,
-            AssemblyVersion = AssemblyVersion,
-            PendingRestartVersion = PendingRestartVersion,
-            LastCheckAttemptUtc = LastCheckAttemptUtc,
-            LastSuccessfulCheckUtc = LastSuccessfulCheckUtc,
-            LastResult = LastResult,
-            LastSkipReason = LastSkipReason,
-            LastError = LastError,
-            LastTargetVersion = LastTargetVersion,
-            LastTargetFileName = LastTargetFileName,
-            LastTargetSha256 = LastTargetSha256,
-            LastTargetSize = LastTargetSize,
-            LastDownloadedVersion = LastDownloadedVersion,
-            LastScheduledVersion = LastScheduledVersion,
-            LastUpdateAvailableNotificationVersion = LastUpdateAvailableNotificationVersion,
-            LastUpdateReadyNotificationVersion = LastUpdateReadyNotificationVersion,
-            LastUpdatedNotificationVersion = LastUpdatedNotificationVersion,
-            ConsecutiveFailures = ConsecutiveFailures,
-            LastFailureNotificationUtc = LastFailureNotificationUtc
-        };
+    public enum UpdateCheckStatus
+    {
+        UpToDate,
+        Available,
+        Failed,
+    }
+
+    /// <summary>
+    /// A check's outcome. <see cref="Release"/> is set only when one is Available;
+    /// <see cref="Message"/> is the latest tag when UpToDate, and why when Failed.
+    /// </summary>
+    public sealed record UpdateCheckResult(UpdateCheckStatus Status, UpdateRelease? Release, string? Message)
+    {
+        internal static UpdateCheckResult UpToDate(string latestTag) => new(UpdateCheckStatus.UpToDate, null, latestTag);
+        internal static UpdateCheckResult Available(UpdateRelease release) => new(UpdateCheckStatus.Available, release, null);
+        internal static UpdateCheckResult Failed(string message) => new(UpdateCheckStatus.Failed, null, message);
     }
 }

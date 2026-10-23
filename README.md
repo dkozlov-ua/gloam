@@ -2,8 +2,7 @@
 
 Fix washed-out SDR content in Windows HDR mode. Per-monitor gamma correction, a perceptual night mode, and verified colorimeter calibration.
 
-[![Build](https://github.com/halideworks/gloam/actions/workflows/build.yml/badge.svg)](https://github.com/halideworks/gloam/actions/workflows/build.yml)
-[![Latest release](https://img.shields.io/github/v/release/halideworks/gloam?sort=semver)](https://github.com/halideworks/gloam/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/dkozlov-ua/gloam?sort=semver)](https://github.com/dkozlov-ua/gloam/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
 
 ![Detail of a candlelit painting shown twice. Left, decoded by Windows with the sRGB curve: the dark background washes out to a flat brown-grey haze. Right, with Gloam's Gamma 2.2 correction: the background returns to a deep black the figure sits against, while the candle flames stay exactly as bright.](docs/media/hero-comparison.png)
@@ -14,7 +13,7 @@ Turn HDR on in Windows and SDR content goes flat and milky, because Windows pres
 
 ## Quick start
 
-1. Download [`GloamApp-win-Setup.exe`](https://github.com/halideworks/gloam/releases/latest/download/GloamApp-win-Setup.exe) and run it. Per-user install, no administrator prompt.
+1. Download `Gloam-X.Y.Z.zip` from the [latest release](https://github.com/dkozlov-ua/gloam/releases/latest), unzip it, and run `powershell -ExecutionPolicy Bypass -File install.ps1` in the unzipped folder. Per-user install, no administrator prompt.
 2. Right-click the Gloam icon in the system tray.
 3. Pick **Gamma 2.2** for the monitor you want to fix.
 
@@ -32,30 +31,25 @@ That is the whole fix. Everything below is optional.
 - Auto-disables night mode for chosen applications while they are in the foreground, either on every monitor or only on the displays the application's window covers. Gamma correction and installed calibration profiles stay active.
 - Supports SDR and HDR colorimeter calibration through ArgyllCMS, including native Windows MHC2 profile installation and verification.
 - Remembers calibration setup per monitor, including target, preset, meter correction, display type, and window position.
-- Updates silently in the background when installed with the setup package.
+- Updates on request: **Check for Updates** in the tray installs a newer release in place.
 - Runs locally. No accounts, no telemetry.
 
 ## Install
 
-These links always resolve to the current release:
+Each release carries one asset, `Gloam-X.Y.Z.zip`: a self-contained build with ArgyllCMS bundled.
 
-Recommended:
+1. Download it from the [latest release](https://github.com/dkozlov-ua/gloam/releases/latest) and unzip it.
+2. Run `powershell -ExecutionPolicy Bypass -File install.ps1` in the unzipped folder.
 
-- [`GloamApp-win-Setup.exe`](https://github.com/halideworks/gloam/releases/latest/download/GloamApp-win-Setup.exe)
-- Per-user install, no administrator prompt.
-- Self-contained.
-- Bundles ArgyllCMS.
-- Auto-updates silently on app exit or restart.
+Gloam installs into `%LOCALAPPDATA%\Programs\Gloam`, a fixed folder that every update replaces in place, and adds **Gloam** to the Start menu. No administrator prompt.
 
-Portable:
+**Check for Updates** in the tray menu asks GitHub for the latest release. When that release is newer, Gloam shows its notes and offers **Install**. Install downloads the zip, checks it against the SHA-256 that GitHub publishes for it, closes Gloam, puts the new files into the same folder, and starts Gloam again. Nothing is checked unless you ask.
 
-- [`GloamApp-win-Portable.zip`](https://github.com/halideworks/gloam/releases/latest/download/GloamApp-win-Portable.zip)
-- Extract and run `Gloam.exe`.
-- Does not auto-update. Replace it with a newer zip to upgrade.
+To uninstall, run `powershell -ExecutionPolicy Bypass -File "%LOCALAPPDATA%\Programs\Gloam\install.ps1" -Uninstall`. Settings and calibration data in `%LOCALAPPDATA%\Gloam` are kept.
 
-Release notes, checksums and older versions: https://github.com/halideworks/gloam/releases
+Release notes, checksums and older versions: https://github.com/dkozlov-ua/gloam/releases
 
-If SmartScreen says "Windows protected your PC", click **More info** and confirm the verified publisher. New signed apps can still show reputation warnings until enough users have installed them.
+Releases are not code-signed. `install.ps1` removes the downloaded-file mark from everything it installs, so SmartScreen does not stop `Gloam.exe` or the bundled ArgyllCMS tools.
 
 ## Use
 
@@ -129,7 +123,7 @@ Every number in the report is measured through the installed profile, not predic
 
 ### Hardware validation
 
-Gloam's calibration model is pinned by golden fixtures: real recorded measurement sets replayed through the live pipeline on every CI run, so a modeling change that would alter what the pipeline computes from real panel data fails the build.
+Gloam's calibration model is pinned by golden fixtures: real recorded measurement sets replayed through the live pipeline on every test run, so a modeling change that would alter what the pipeline computes from real panel data fails the build.
 
 - **Golden-fixture validated:** Gigabyte M27Q-P, MSI MAG271QPX28.
 - **Expected to work, seeking validation data:** OLED, QD-OLED, wide-gamut LCD, mini-LED.
@@ -169,7 +163,7 @@ Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 ## Files
 
 - Settings, logs, reports, corrections: `%LOCALAPPDATA%\Gloam`
-- Velopack install root: `%LOCALAPPDATA%\GloamApp`
+- Installation: `%LOCALAPPDATA%\Programs\Gloam`
 
 Use **Export Diagnostics** from the tray when reporting issues.
 

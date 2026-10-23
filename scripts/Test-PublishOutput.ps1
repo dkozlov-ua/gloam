@@ -115,6 +115,8 @@ $requiredFiles = @(
     "README.md",
     "LICENSE.txt",
     "THIRD_PARTY_NOTICES.txt",
+    "install.ps1",
+    "VERSION",
     "srgb_to_gamma2p2_100_mhc2.icm",
     "srgb_to_gamma2p2_200_mhc2.icm",
     "srgb_to_gamma2p2_300_mhc2.icm",
@@ -131,7 +133,6 @@ foreach ($file in $requiredFiles) {
 
 Test-RequiredText "THIRD_PARTY_NOTICES.txt" "ArgyllCMS" "ArgyllCMS third-party notice"
 Test-RequiredText "THIRD_PARTY_NOTICES.txt" "GNU Affero General Public License|AGPL" "ArgyllCMS AGPL license reference"
-Test-RequiredText "THIRD_PARTY_NOTICES.txt" "Velopack" "Velopack third-party notice"
 
 $profileFiles = Get-ChildItem -LiteralPath $publishRoot -Filter "*.icm" -File
 if ($profileFiles.Count -lt 6) {

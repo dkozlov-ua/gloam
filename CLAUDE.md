@@ -14,7 +14,8 @@ dotnet test src/Gloam.sln -c Release                                  # full sui
 dotnet test src/Gloam.sln -c Release --filter "FullyQualifiedName~LutGeneratorTests"   # one class
 dotnet test src/Gloam.sln -c Release --filter "FullyQualifiedName~LutGeneratorTests.MethodName"
 dotnet build src/Gloam.sln -c Release -p:GloamStrictBuild=true       # warnings-as-errors; must be clean
-.\package.ps1 -Version X.Y.Z                                          # local Velopack package
+.\package.ps1                                                        # release package: Releases\Gloam-X.Y.Z\ + .zip
+.\publish.ps1                                                        # package this commit and publish it as a GitHub release
 python scripts/build-whitepaper-md.py                                 # regenerate site/whitepaper.md from site/whitepaper.html
 ```
 
@@ -40,7 +41,7 @@ Projects (dependency order): `Gloam.Interop` (raw P/Invoke for DisplayConfig, DX
 
 ### Startup
 
-`src/Gloam/Program.cs` is the custom entry point (`<StartupObject>`). Velopack hooks must run before WPF starts. It also holds a single-instance mutex, because two instances would fight over the GPU gamma ramp and `settings.json`. `App.xaml.cs` is the DI composition root, where all core services are singletons. `TrayViewModel` is the central coordinator. Its constructor's wiring and start order is load-bearing: `NightModeService` and `AppDetectionService` fire events synchronously from `Start()`.
+`src/Gloam/Program.cs` is the custom entry point (`<StartupObject>`). The `--smoke` and `--profile-set` modes and the single-instance mutex all decide before WPF starts. The mutex exists because two instances would fight over the GPU gamma ramp and `settings.json`. `App.xaml.cs` is the DI composition root, where all core services are singletons. `TrayViewModel` is the central coordinator. Its constructor's wiring and start order is load-bearing: `NightModeService` and `AppDetectionService` fire events synchronously from `Start()`.
 
 ### Gamma apply pipeline (the core loop)
 
@@ -57,7 +58,7 @@ The measurement flow is: `CalibrationOrchestrator` (patch sequencing, adaptive s
 
 ### Settings and data
 
-`SettingsManager` → `SettingsPersistence` (atomic writes, size limit, refuses newer schema versions) → `SettingsNormalization` (migration and sanitizing on load). All data lives under `AppPaths.DataDir` (`%LOCALAPPDATA%\Gloam`). The legacy `HDRGammaController` folder name exists only for a one-time migration and must not change. The Velopack install root is the separate `%LOCALAPPDATA%\GloamApp`. The pack id `GloamApp` must stay identical in `package.ps1` and `.github/workflows/build.yml`.
+`SettingsManager` → `SettingsPersistence` (atomic writes, size limit, refuses newer schema versions) → `SettingsNormalization` (migration and sanitizing on load). All data lives under `AppPaths.DataDir` (`%LOCALAPPDATA%\Gloam`). The legacy `HDRGammaController` folder name exists only for a one-time migration and must not change. The installation is the separate `%LOCALAPPDATA%\Programs\Gloam` (see Releases), so updates and uninstalls never touch user data.
 
 ## Contribution rules (from CONTRIBUTING.md / PR template)
 
@@ -74,4 +75,11 @@ The measurement flow is: `CalibrationOrchestrator` (patch sequencing, adaptive s
 
 ## Releases
 
-See `RELEASE.md`. Pushing a `vX.Y.Z` tag triggers CI to build, sign (Azure Trusted Signing over OIDC), and publish a Velopack release to GitHub. Before tagging, bump `<Version>` in `src/Gloam/Gloam.csproj` to match and write `docs/release-notes/vX.Y.Z.md`. Notes must say plainly when a change affects calibration math or measured output.
+See `RELEASE.md`. There is no CI and no code signing: `publish.ps1` builds the release locally and publishes it with `gh`. Before publishing, bump `<Version>` in `src/Gloam/Gloam.csproj` (X.Y.Z only; it is the one version) and write `docs/release-notes/vX.Y.Z.md`. Notes must say plainly when a change affects calibration math or measured output.
+
+What the code relies on:
+
+- **An installation is one fixed folder**, `%LOCALAPPDATA%\Programs\Gloam` by default, and every update lands in the *same* folder, so the HKCU Run value and the Start menu shortcut never need repointing. `install.ps1 -Package` installs into the folder it is itself in, and it hands over to the **new** version's `install.ps1`.
+- **`manifest.txt` is the ownership record.** `package.ps1` writes it to list every file in the package. An install copies exactly those files, deletes what the *previous* manifest listed and this one does not, and touches nothing else. `UpdateService.IsInstallation` (`manifest.txt` + `install.ps1` beside `Gloam.exe`) is how the app tells an installation from a dev run. It gates self-update and taking over the Start with Windows registration.
+- **Updates happen on a click, never on a timer.** Tray → *Check for Updates* (`UpdateService`) offers the latest release only when its tag is `vX.Y.Z` and newer, and only when it carries `Gloam-X.Y.Z.zip` served from under `UpdateService.DownloadUrlPrefix` with a GitHub `sha256:` digest. The app checks the download, and `install.ps1` checks its own copy again. `publish.ps1` refuses an `UpdateRepo` that is not the repository it publishes to. The check sends no token, so the repository must be public.
+- `install.ps1` is read by Windows PowerShell 5.1 in the ANSI codepage: keep it ASCII. `InstallScriptTests` drives it for real, against temp folders.

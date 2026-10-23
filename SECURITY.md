@@ -17,8 +17,8 @@ say so and why rather than leaving it open indefinitely.
 
 ## Supported versions
 
-The latest release. Gloam auto-updates by default when installed with the setup package,
-and fixes ship in a new release rather than as backports to older versions.
+The latest release. Gloam updates when you click **Check for Updates** in the tray, and fixes
+ship in a new release rather than as backports to older versions.
 
 ## In scope
 
@@ -26,15 +26,17 @@ These are the places Gloam handles input it did not create, and where a vulnerab
 be most consequential:
 
 - **Profile and settings parsing.** `settings.json`, calibration profiles, saved report
-  snapshots, and update state, all under `%LOCALAPPDATA%\Gloam`. Malformed or hostile input
+  snapshots, all under `%LOCALAPPDATA%\Gloam`. Malformed or hostile input
   should fail closed, not execute or corrupt.
 - **Downloaded CCSS/CCMX handling.** Meter corrections fetched from the DisplayCAL
   community database are third-party files from a remote source, parsed locally.
 - **ArgyllCMS invocation.** Gloam launches `spotread`, `dispwin`, and related tools as
   child processes, and locates the binaries at runtime. Argument handling, path resolution,
   and anything that could result in executing an unexpected binary is in scope.
-- **The updater.** Velopack feed handling, signature and version checks, and the install
-  path under `%LOCALAPPDATA%\GloamApp`.
+- **The updater.** The GitHub release check (`UpdateService`), the SHA-256 check against
+  GitHub's published asset digest, and `install.ps1`, which replaces files in the
+  installation under `%LOCALAPPDATA%\Programs\Gloam`. Releases are not code-signed: the
+  digest is the only integrity check.
 - **ICC/MHC2 profile generation and installation**, including what Gloam writes into the
   Windows color store.
 

@@ -35,4 +35,9 @@
     <None Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- InstallScriptTests run the real installer from the test output. -->
+  <ItemGroup>
+    <None Include="..\..\install.ps1" Link="install.ps1" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

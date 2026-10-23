@@ -1,15 +1,23 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Net;
+using System.Net.Http;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Gloam.Core;
 using Gloam.Services;
-using Velopack;
 using Xunit;
 
 namespace Gloam.Tests
 {
     public sealed class UpdateServiceTests : IDisposable
     {
+        private const string Prefix = UpdateService.DownloadUrlPrefix;
+
         private readonly string _originalDataDir;
         private readonly string _originalRoamingDir;
         private readonly string _tempDir;
@@ -19,479 +27,307 @@ namespace Gloam.Tests
             _originalDataDir = AppPaths.DataDir;
             _originalRoamingDir = AppPaths.RoamingDataDir;
             _tempDir = Path.Combine(Path.GetTempPath(), "GloamUpdateServiceTests", Guid.NewGuid().ToString("N"));
-            AppPaths.UseDataDirectoriesForCurrentProcess(_tempDir, Path.Combine(_tempDir, "roaming"));
-        }
-
-        [Fact]
-        public async Task CheckForUpdatesAsync_IgnoresSameVersionTarget()
-        {
-            var manager = new FakeUpdateManager("1.0.1")
-            {
-                NextUpdate = CreateUpdate("1.0.1")
-            };
-            var service = new UpdateService(manager);
-
-            var update = await service.CheckForUpdatesAsync();
-
-            Assert.Null(update);
-            Assert.Equal(1, manager.CheckCount);
-        }
-
-        [Fact]
-        public async Task CheckForUpdatesAsync_ReturnsNewerTarget()
-        {
-            var manager = new FakeUpdateManager("1.0.1")
-            {
-                NextUpdate = CreateUpdate("1.0.2")
-            };
-            var service = new UpdateService(manager);
-
-            var update = await service.CheckForUpdatesAsync();
-
-            Assert.NotNull(update);
-            Assert.Equal("1.0.2", UpdateService.VersionLabel(update!));
-        }
-
-        [Fact]
-        public async Task CheckForUpdatesAsync_IgnoresDowngradeTarget()
-        {
-            var manager = new FakeUpdateManager("1.0.1")
-            {
-                NextUpdate = CreateUpdate("1.0.0", isDowngrade: true)
-            };
-            var service = new UpdateService(manager);
-
-            var update = await service.CheckForUpdatesAsync();
-
-            Assert.Null(update);
-        }
-
-        [Fact]
-        public async Task CheckForUpdatesAsync_IgnoresUnexpectedPackageId()
-        {
-            var manager = new FakeUpdateManager("1.0.1")
-            {
-                NextUpdate = CreateUpdate("1.0.2", packageId: "OtherApp")
-            };
-            var service = new UpdateService(manager);
-
-            var update = await service.CheckForUpdatesAsync();
-
-            Assert.Null(update);
-        }
-
-        [Fact]
-        public async Task CheckForUpdatesAsync_IgnoresUpdateWithoutSha256Metadata()
-        {
-            var manager = new FakeUpdateManager("1.0.1")
-            {
-                NextUpdate = CreateUpdate("1.0.2", sha256: "")
-            };
-            var service = new UpdateService(manager);
-
-            var update = await service.CheckForUpdatesAsync();
-
-            Assert.Null(update);
-        }
-
-        [Fact]
-        public async Task CheckForUpdatesAsync_IgnoresUpdateWithInvalidSha256Metadata()
-        {
-            var manager = new FakeUpdateManager("1.0.1")
-            {
-                NextUpdate = CreateUpdate("1.0.2", sha256: new string('z', 64))
-            };
-            var service = new UpdateService(manager);
-
-            var update = await service.CheckForUpdatesAsync();
-
-            Assert.Null(update);
-        }
-
-        [Fact]
-        public async Task DownloadAndSchedule_RefuseSameVersionEvenIfCalledDirectly()
-        {
-            var manager = new FakeUpdateManager("1.0.1");
-            var service = new UpdateService(manager);
-            var update = CreateUpdate("1.0.1");
-
-            bool downloaded = await service.DownloadUpdatesAsync(update);
-            bool scheduled = service.ApplyUpdatesOnExit(update);
-
-            Assert.False(downloaded);
-            Assert.False(scheduled);
-            Assert.Equal(0, manager.DownloadCount);
-            Assert.Equal(0, manager.ScheduleCount);
-        }
-
-        [Fact]
-        public async Task DownloadAndSchedule_AllowsNewerVersion()
-        {
-            var manager = new FakeUpdateManager("1.0.1");
-            var service = new UpdateService(manager);
-            var update = CreateUpdate("1.0.2");
-
-            bool downloaded = await service.DownloadUpdatesAsync(update);
-            bool scheduled = service.ApplyUpdatesOnExit(update);
-
-            Assert.True(downloaded);
-            Assert.True(scheduled);
-            Assert.Equal(1, manager.DownloadCount);
-            Assert.Equal(1, manager.ScheduleCount);
-        }
-
-        [Fact]
-        public void DisplayVersion_UsesInstalledPackageVersion()
-        {
-            var service = new UpdateService(new FakeUpdateManager("1.2.3"));
-
-            Assert.Equal("1.2.3", service.InstalledVersion);
-            Assert.Equal("v1.2.3", service.DisplayVersion);
-        }
-
-        [Fact]
-        public async Task CheckForUpdatesAsync_ThrottlesRecentSuccessfulCheck()
-        {
-            var now = new DateTimeOffset(2026, 6, 30, 12, 0, 0, TimeSpan.Zero);
-            var manager = new FakeUpdateManager("1.0.1")
-            {
-                NextUpdate = null
-            };
-            var service = new UpdateService(manager, () => now);
-
-            Assert.Null(await service.CheckForUpdatesAsync());
-            Assert.Null(await service.CheckForUpdatesAsync());
-
-            Assert.Equal(1, manager.CheckCount);
-        }
-
-        [Fact]
-        public async Task CheckForUpdatesAsync_RetriesFailuresAfterShorterInterval()
-        {
-            var now = new DateTimeOffset(2026, 6, 30, 12, 0, 0, TimeSpan.Zero);
-            var manager = new FakeUpdateManager("1.0.1")
-            {
-                ThrowOnCheck = true
-            };
-            var service = new UpdateService(manager, () => now);
-
-            Assert.Null(await service.CheckForUpdatesAsync());
-            now += UpdateService.FailedCheckRetryInterval + TimeSpan.FromSeconds(1);
-            Assert.Null(await service.CheckForUpdatesAsync());
-
-            Assert.Equal(2, manager.CheckCount);
-            Assert.Equal(2, service.StateSnapshot.ConsecutiveFailures);
-        }
-
-        [Fact]
-        public void TrySchedulePendingUpdateOnExit_SchedulesNewerPreparedUpdate()
-        {
-            var manager = new FakeUpdateManager("1.0.1")
-            {
-                PendingAsset = CreateAsset("1.0.2")
-            };
-            var service = new UpdateService(manager);
-
-            bool scheduled = service.TrySchedulePendingUpdateOnExit();
-
-            Assert.True(scheduled);
-            Assert.Equal(1, manager.ScheduleCount);
-            Assert.Equal("1.0.2", service.StateSnapshot.LastScheduledVersion);
-        }
-
-        [Fact]
-        public void TrySchedulePendingUpdateOnExit_IgnoresSameVersionPreparedUpdate()
-        {
-            var manager = new FakeUpdateManager("1.0.1")
-            {
-                PendingAsset = CreateAsset("1.0.1")
-            };
-            var service = new UpdateService(manager);
-
-            bool scheduled = service.TrySchedulePendingUpdateOnExit();
-
-            Assert.False(scheduled);
-            Assert.Equal(0, manager.ScheduleCount);
-        }
-
-        [Fact]
-        public async Task PersistentFailures_NotifyAfterThresholdAndRespectCooldown()
-        {
-            var now = new DateTimeOffset(2026, 6, 30, 12, 0, 0, TimeSpan.Zero);
-            var manager = new FakeUpdateManager("1.0.1")
-            {
-                ThrowOnCheck = true
-            };
-            var service = new UpdateService(manager, () => now);
-
-            for (int i = 0; i < 3; i++)
-            {
-                Assert.Null(await service.CheckForUpdatesAsync());
-                now += UpdateService.FailedCheckRetryInterval + TimeSpan.FromSeconds(1);
-            }
-
-            Assert.True(service.ShouldNotifyPersistentFailure());
-            service.MarkFailureNotified();
-            Assert.False(service.ShouldNotifyPersistentFailure());
-            now += UpdateService.FailureNotificationInterval + TimeSpan.FromSeconds(1);
-            Assert.True(service.ShouldNotifyPersistentFailure());
-        }
-
-        [Fact]
-        public async Task InformationalResults_DoNotClearLastFailureMessage()
-        {
-            var now = new DateTimeOffset(2026, 6, 30, 12, 0, 0, TimeSpan.Zero);
-            var manager = new FakeUpdateManager("1.0.1")
-            {
-                ThrowOnCheck = true
-            };
-            var service = new UpdateService(manager, () => now);
-
-            Assert.Null(await service.CheckForUpdatesAsync());
-            Assert.Equal("feed unavailable", service.StateSnapshot.LastError);
-
-            Assert.False(service.TrySchedulePendingUpdateOnExit());
-
-            Assert.Equal("feed unavailable", service.StateSnapshot.LastError);
-        }
-
-        [Fact]
-        public async Task CheckForUpdatesAsync_WritesDiagnosticStateFile()
-        {
-            var manager = new FakeUpdateManager("1.0.1")
-            {
-                NextUpdate = CreateUpdate("1.0.2")
-            };
-            var service = new UpdateService(manager);
-
-            Assert.NotNull(await service.CheckForUpdatesAsync());
-
-            string statePath = Path.Combine(AppPaths.DataDir, "update-state.json");
-            Assert.True(File.Exists(statePath));
-            string json = File.ReadAllText(statePath);
-            Assert.Contains("\"InstalledVersion\": \"1.0.1\"", json);
-            Assert.Contains("\"LastTargetVersion\": \"1.0.2\"", json);
-        }
-
-        [Fact]
-        public void UpdateReadyNotification_IsOncePerTargetVersion()
-        {
-            var service = new UpdateService(new FakeUpdateManager("1.0.1"));
-
-            Assert.True(service.ShouldNotifyUpdateReady("1.0.2"));
-            service.MarkUpdateReadyNotified("1.0.2");
-
-            Assert.False(service.ShouldNotifyUpdateReady("1.0.2"));
-            Assert.True(service.ShouldNotifyUpdateReady("1.0.3"));
-            Assert.Equal("1.0.2", service.StateSnapshot.LastUpdateReadyNotificationVersion);
-        }
-
-        [Fact]
-        public void UpdateAvailableNotification_IsOncePerTargetVersion()
-        {
-            var service = new UpdateService(new FakeUpdateManager("1.0.1"));
-
-            Assert.True(service.ShouldNotifyUpdateAvailable("1.0.2"));
-            service.MarkUpdateAvailableNotified("1.0.2");
-
-            Assert.False(service.ShouldNotifyUpdateAvailable("1.0.2"));
-            Assert.True(service.ShouldNotifyUpdateAvailable("1.0.3"));
-            Assert.Equal("1.0.2", service.StateSnapshot.LastUpdateAvailableNotificationVersion);
-        }
-
-        [Fact]
-        public void UpdatedNotification_IsOncePerInstalledVersion()
-        {
-            Directory.CreateDirectory(AppPaths.DataDir);
-            File.WriteAllText(Path.Combine(AppPaths.DataDir, "update-state.json"), """
-                {
-                  "IsInstalled": true,
-                  "InstalledVersion": "1.0.1"
-                }
-                """);
-
-            var service = new UpdateService(new FakeUpdateManager("1.0.2"));
-
-            Assert.Equal("1.0.1", service.UpdatedFromVersion);
-            Assert.Equal("1.0.2", service.UpdatedToVersion);
-            Assert.True(service.ShouldNotifyUpdated("1.0.2"));
-
-            service.MarkUpdatedNotified("1.0.2");
-
-            Assert.False(service.ShouldNotifyUpdated("1.0.2"));
-            Assert.True(service.ShouldNotifyUpdated("1.0.3"));
-            Assert.Equal("1.0.2", service.StateSnapshot.LastUpdatedNotificationVersion);
-        }
-
-        [Fact]
-        public void TrySchedulePendingUpdateOnExit_DeletesStaleStagedPackage()
-        {
-            Directory.CreateDirectory(AppPaths.DataDir);
-            string stalePackage = Path.Combine(AppPaths.DataDir, "GloamApp-1.0.1-full.nupkg");
-            File.WriteAllText(stalePackage, "stale package bytes");
-
-            var manager = new FakeUpdateManager("1.0.1")
-            {
-                PendingAsset = CreateAsset("1.0.1"),
-                LocalPackagePath = stalePackage
-            };
-            var service = new UpdateService(manager);
-
-            bool scheduled = service.TrySchedulePendingUpdateOnExit();
-
-            Assert.False(scheduled);
-            Assert.Equal(0, manager.ScheduleCount);
-            Assert.False(File.Exists(stalePackage));
-        }
-
-        [Fact]
-        public void TrySchedulePendingUpdateOnExit_StalePackageDeleteFailureIsNonFatal()
-        {
-            var manager = new FakeUpdateManager("1.0.1")
-            {
-                PendingAsset = CreateAsset("1.0.0"),
-                LocalPackagePath = Path.Combine(AppPaths.DataDir, "no-such-dir", "missing.nupkg")
-            };
-            var service = new UpdateService(manager);
-
-            Assert.False(service.TrySchedulePendingUpdateOnExit());
-        }
-
-        [Fact]
-        public void TrySchedulePendingUpdateOnExit_DoesNotDeleteNewerStagedPackage()
-        {
-            Directory.CreateDirectory(AppPaths.DataDir);
-            string stagedPackage = Path.Combine(AppPaths.DataDir, "GloamApp-1.0.2-full.nupkg");
-            File.WriteAllText(stagedPackage, "staged package bytes");
-
-            var manager = new FakeUpdateManager("1.0.1")
-            {
-                PendingAsset = CreateAsset("1.0.2"),
-                LocalPackagePath = stagedPackage
-            };
-            var service = new UpdateService(manager);
-
-            Assert.True(service.TrySchedulePendingUpdateOnExit());
-            Assert.True(File.Exists(stagedPackage));
-        }
-
-        [Fact]
-        public async Task ThrottledCheck_DoesNotOverwriteLastResult()
-        {
-            var now = new DateTimeOffset(2026, 6, 30, 12, 0, 0, TimeSpan.Zero);
-            var manager = new FakeUpdateManager("1.0.1")
-            {
-                NextUpdate = null
-            };
-            var service = new UpdateService(manager, () => now);
-
-            Assert.Null(await service.CheckForUpdatesAsync());
-            Assert.Equal("up-to-date", service.StateSnapshot.LastResult);
-
-            // Second check within the throttle window is skipped; the skip reason must land
-            // in LastSkipReason, never clobber the last real result.
-            now += TimeSpan.FromMinutes(1);
-            Assert.Null(await service.CheckForUpdatesAsync());
-
-            var state = service.StateSnapshot;
-            Assert.Equal("up-to-date", state.LastResult);
-            Assert.Contains("last check was", state.LastSkipReason);
-            Assert.Equal(1, manager.CheckCount);
-        }
-
-        [Theory]
-        [InlineData("1.0.3", "1.0.2", true)]   // feed newer than pending -> supersede
-        [InlineData("1.0.2", "1.0.2", false)]  // same as pending -> keep pending
-        [InlineData("1.0.1", "1.0.2", false)]  // older than pending -> keep pending
-        [InlineData("1.0.2", null, true)]      // no pending version recorded -> accept
-        [InlineData("1.0.2", "not-a-version", true)] // unparseable state -> accept
-        public void IsNewerThanVersionLabel_ComparesAgainstPendingVersion(string feedVersion, string? pendingVersion, bool expected)
-        {
-            var info = CreateUpdate(feedVersion);
-
-            Assert.Equal(expected, UpdateService.IsNewerThanVersionLabel(info, pendingVersion));
-        }
-
-        private static UpdateInfo CreateUpdate(
-            string version,
-            bool isDowngrade = false,
-            string packageId = "GloamApp",
-            string? sha256 = null)
-            => new(CreateAsset(version, packageId, sha256), isDowngrade, CreateAsset(version, packageId, sha256), Array.Empty<VelopackAsset>());
-
-        private static VelopackAsset CreateAsset(string version, string packageId = "GloamApp", string? sha256 = null)
-        {
-            return new VelopackAsset
-            {
-                PackageId = packageId,
-                Version = SemanticVersion.Parse(version),
-                Type = VelopackAssetType.Full,
-                FileName = $"GloamApp-{version}-full.nupkg",
-                SHA256 = sha256 ?? new string('a', 64),
-                Size = 1
-            };
-        }
-
-        private sealed class FakeUpdateManager : IUpdateManagerAdapter
-        {
-            public FakeUpdateManager(string? currentVersion)
-            {
-                CurrentVersion = currentVersion == null ? null : SemanticVersion.Parse(currentVersion);
-            }
-
-            public bool IsInstalled { get; init; } = true;
-            public bool IsPortable { get; init; }
-            public SemanticVersion? CurrentVersion { get; }
-            public UpdateInfo? NextUpdate { get; init; }
-            public VelopackAsset? PendingAsset { get; init; }
-            public bool ThrowOnCheck { get; init; }
-            public int CheckCount { get; private set; }
-            public int DownloadCount { get; private set; }
-            public int ScheduleCount { get; private set; }
-            public VelopackAsset? UpdatePendingRestart => PendingAsset;
-
-            public Task<UpdateInfo?> CheckForUpdatesAsync()
-            {
-                CheckCount++;
-                if (ThrowOnCheck)
-                    throw new InvalidOperationException("feed unavailable");
-
-                return Task.FromResult(NextUpdate);
-            }
-
-            public Task DownloadUpdatesAsync(UpdateInfo info)
-            {
-                DownloadCount++;
-                return Task.CompletedTask;
-            }
-
-            public void ApplyUpdatesAndRestart(UpdateInfo info)
-            {
-            }
-
-            public void WaitExitThenApplyUpdates(VelopackAsset asset, bool silent, bool restart)
-            {
-                Assert.True(silent);
-                Assert.False(restart);
-                ScheduleCount++;
-            }
-
-            public string? LocalPackagePath { get; set; }
-
-            public string? GetLocalPackagePath(VelopackAsset asset) => LocalPackagePath;
+            AppPaths.UseDataDirectoriesForCurrentProcess(Path.Combine(_tempDir, "data"), Path.Combine(_tempDir, "roaming"));
         }
 
         public void Dispose()
         {
             AppPaths.UseDataDirectoriesForCurrentProcess(_originalDataDir, _originalRoamingDir);
-            try
+            try { Directory.Delete(_tempDir, recursive: true); } catch (IOException) { }
+        }
+
+        private static readonly string ValidSha = new('a', 64);
+
+        private static string Release(string tag, params object[] assets)
+            => JsonSerializer.Serialize(new { tag_name = tag, body = "Notes for " + tag, assets });
+
+        private static object Asset(string name, string? url = null, string? digest = "", long size = 10)
+            => new { name, browser_download_url = url ?? Prefix + "v0/" + name, digest, size };
+
+        private static object Package(string version, string? sha = null, string? url = null)
+            => Asset($"Gloam-{version}.zip", url ?? $"{Prefix}v{version}/Gloam-{version}.zip",
+                     sha == null ? "sha256:" + ValidSha : sha);
+
+        [Fact]
+        public void Evaluate_NewerReleaseWithDigest_IsOffered()
+        {
+            var result = UpdateService.Evaluate(Release("v1.11.0", Package("1.11.0")), new Version(1, 10, 8));
+
+            Assert.Equal(UpdateCheckStatus.Available, result.Status);
+            var release = Assert.IsType<UpdateRelease>(result.Release);
+            Assert.Equal(new Version(1, 11, 0), release.Version);
+            Assert.Equal("v1.11.0", release.Tag);
+            Assert.Equal($"{Prefix}v1.11.0/Gloam-1.11.0.zip", release.DownloadUrl);
+            Assert.Equal(ValidSha, release.Sha256);
+            Assert.Equal("Notes for v1.11.0", release.Notes);
+        }
+
+        [Fact]
+        public void Evaluate_DigestIsNormalisedToLowerCase()
+        {
+            var result = UpdateService.Evaluate(
+                Release("v2.0.0", Package("2.0.0", sha: "sha256:" + new string('B', 64))), new Version(1, 0, 0));
+
+            Assert.Equal(new string('b', 64), result.Release!.Sha256);
+        }
+
+        [Theory]
+        [InlineData("v1.10.8")]
+        [InlineData("v1.9.99")]
+        [InlineData("v0.0.1")]
+        public void Evaluate_SameOrOlderRelease_IsUpToDate(string tag)
+        {
+            var result = UpdateService.Evaluate(Release(tag, Package(tag[1..])), new Version(1, 10, 8));
+
+            Assert.Equal(UpdateCheckStatus.UpToDate, result.Status);
+            Assert.Null(result.Release);
+            Assert.Equal(tag, result.Message);
+        }
+
+        [Fact]
+        public void Evaluate_OlderReleaseWithoutPackage_IsStillUpToDate()
+        {
+            // What the latest release carries only matters when it would be installed.
+            var result = UpdateService.Evaluate(Release("v1.0.0"), new Version(1, 10, 8));
+
+            Assert.Equal(UpdateCheckStatus.UpToDate, result.Status);
+        }
+
+        [Fact]
+        public void Evaluate_VersionsCompareNumerically()
+        {
+            var result = UpdateService.Evaluate(Release("v1.10.0", Package("1.10.0")), new Version(1, 9, 3));
+
+            Assert.Equal(UpdateCheckStatus.Available, result.Status);
+        }
+
+        [Theory]
+        [InlineData("1.11.0")]
+        [InlineData("v1.11")]
+        [InlineData("v1.11.0-beta")]
+        [InlineData("release-1.11.0")]
+        public void Evaluate_TagThatIsNotVxyz_Fails(string tag)
+        {
+            var result = UpdateService.Evaluate(Release(tag, Package("1.11.0")), new Version(1, 10, 8));
+
+            Assert.Equal(UpdateCheckStatus.Failed, result.Status);
+            Assert.Null(result.Release);
+        }
+
+        [Fact]
+        public void Evaluate_ReleaseWithoutDigest_IsNotOffered()
+        {
+            var result = UpdateService.Evaluate(
+                Release("v1.11.0", Asset("Gloam-1.11.0.zip", $"{Prefix}v1.11.0/Gloam-1.11.0.zip", digest: null)),
+                new Version(1, 10, 8));
+
+            Assert.Equal(UpdateCheckStatus.Failed, result.Status);
+            Assert.Contains("SHA-256", result.Message);
+        }
+
+        [Fact]
+        public void Evaluate_MalformedDigest_IsNotOffered()
+        {
+            var result = UpdateService.Evaluate(
+                Release("v1.11.0", Package("1.11.0", sha: "sha1:" + new string('a', 40))), new Version(1, 10, 8));
+
+            Assert.Equal(UpdateCheckStatus.Failed, result.Status);
+        }
+
+        [Theory]
+        [InlineData("https://github.com/someone-else/gloam/releases/download/v1.11.0/Gloam-1.11.0.zip")]
+        [InlineData("https://example.com/Gloam-1.11.0.zip")]
+        [InlineData("http://github.com/dkozlov-ua/gloam/releases/download/v1.11.0/Gloam-1.11.0.zip")]
+        public void Evaluate_PackageFromElsewhere_IsNotOffered(string url)
+        {
+            var result = UpdateService.Evaluate(Release("v1.11.0", Package("1.11.0", url: url)), new Version(1, 10, 8));
+
+            Assert.Equal(UpdateCheckStatus.Failed, result.Status);
+        }
+
+        [Fact]
+        public void Evaluate_OnlyTheVersionsOwnZipCounts()
+        {
+            // The Velopack-era assets and a zip of another version are not the package.
+            var result = UpdateService.Evaluate(
+                Release("v1.11.0",
+                    Asset("GloamApp-win-Portable.zip", digest: "sha256:" + ValidSha),
+                    Package("1.10.9")),
+                new Version(1, 10, 8));
+
+            Assert.Equal(UpdateCheckStatus.Failed, result.Status);
+            Assert.Contains("Gloam-1.11.0.zip", result.Message);
+        }
+
+        [Fact]
+        public void Evaluate_UnreadableAnswer_Fails()
+        {
+            Assert.Equal(UpdateCheckStatus.Failed, UpdateService.Evaluate("<html>", new Version(1, 0, 0)).Status);
+            Assert.Equal(UpdateCheckStatus.Failed, UpdateService.Evaluate("[]", new Version(1, 0, 0)).Status);
+        }
+
+        [Fact]
+        public async Task CheckAsync_AsksForTheRepositorysLatestRelease()
+        {
+            var handler = new FakeHandler(_ => Json(Release("v1.11.0", Package("1.11.0"))));
+            var service = Service(handler);
+
+            var result = await service.CheckAsync();
+
+            Assert.Equal(UpdateCheckStatus.Available, result.Status);
+            var request = Assert.Single(handler.Requests);
+            Assert.Equal(UpdateService.LatestReleaseUrl, request.ToString());
+        }
+
+        [Fact]
+        public async Task CheckAsync_NotFound_SaysPrivateOrNoRelease()
+        {
+            var service = Service(new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound)));
+
+            var result = await service.CheckAsync();
+
+            Assert.Equal(UpdateCheckStatus.Failed, result.Status);
+            Assert.Contains("private", result.Message);
+        }
+
+        [Fact]
+        public async Task CheckAsync_NetworkFailure_IsAFailedCheckNotAnException()
+        {
+            var service = Service(new FakeHandler(_ => throw new HttpRequestException("no route")));
+
+            var result = await service.CheckAsync();
+
+            Assert.Equal(UpdateCheckStatus.Failed, result.Status);
+            Assert.Contains("no route", result.Message);
+        }
+
+        [Fact]
+        public async Task DownloadAsync_MatchingHash_ReturnsTheCheckedPackage()
+        {
+            byte[] payload = Encoding.UTF8.GetBytes("package bytes");
+            var release = ReleaseFor(payload);
+            var service = Service(new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
             {
-                if (Directory.Exists(_tempDir))
-                    Directory.Delete(_tempDir, recursive: true);
-            }
-            catch
+                Content = new ByteArrayContent(payload)
+            }));
+
+            string path = await service.DownloadAsync(release);
+
+            Assert.Equal(Path.Combine(AppPaths.DataDir, "Updates", "Gloam-1.11.0.zip"), path);
+            Assert.Equal(payload, File.ReadAllBytes(path));
+            Assert.Equal(new[] { path }, Directory.GetFiles(UpdateService.UpdatesDir));
+        }
+
+        [Fact]
+        public async Task DownloadAsync_HashMismatch_ThrowsAndLeavesNothing()
+        {
+            var release = ReleaseFor(Encoding.UTF8.GetBytes("what was published"));
+            var service = Service(new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
             {
-                // Best-effort test cleanup.
+                Content = new ByteArrayContent(Encoding.UTF8.GetBytes("something else"))
+            }));
+
+            await Assert.ThrowsAsync<InvalidDataException>(() => service.DownloadAsync(release));
+
+            Assert.Empty(Directory.GetFiles(UpdateService.UpdatesDir));
+        }
+
+        [Fact]
+        public async Task DownloadAsync_RemovesWhatAnEarlierAttemptLeft()
+        {
+            Directory.CreateDirectory(UpdateService.UpdatesDir);
+            string stale = Path.Combine(UpdateService.UpdatesDir, "Gloam-1.10.9.zip");
+            File.WriteAllText(stale, "old");
+            byte[] payload = Encoding.UTF8.GetBytes("new");
+            var service = Service(new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(payload)
+            }));
+
+            await service.DownloadAsync(ReleaseFor(payload));
+
+            Assert.False(File.Exists(stale));
+        }
+
+        [Fact]
+        public async Task DownloadAsync_RefusesAUrlOutsideTheRepository()
+        {
+            var handler = new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.OK));
+            var release = ReleaseFor(Array.Empty<byte>()) with { DownloadUrl = "https://example.com/Gloam-1.11.0.zip" };
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() => Service(handler).DownloadAsync(release));
+
+            Assert.Empty(handler.Requests);
+        }
+
+        [Fact]
+        public void IsInstallation_NeedsManifestAndInstallerBesideTheExe()
+        {
+            string dir = Path.Combine(_tempDir, "app");
+            Directory.CreateDirectory(dir);
+            var service = new UpdateService(new HttpClient(new FakeHandler(_ => throw new InvalidOperationException())), dir, null);
+
+            Assert.False(service.IsInstallation);
+            File.WriteAllText(Path.Combine(dir, "manifest.txt"), "");
+            Assert.False(service.IsInstallation);
+            File.WriteAllText(Path.Combine(dir, "install.ps1"), "");
+            Assert.True(service.IsInstallation);
+        }
+
+        [Fact]
+        public void StartInstaller_RefusesOutsideAnInstallation()
+        {
+            string dir = Path.Combine(_tempDir, "checkout");
+            Directory.CreateDirectory(dir);
+            var service = new UpdateService(new HttpClient(new FakeHandler(_ => throw new InvalidOperationException())), dir, null);
+
+            Assert.Throws<InvalidOperationException>(() => service.StartInstaller("x.zip", ValidSha));
+        }
+
+        [Fact]
+        public void InstallerArguments_RunTheInstallationsOwnScriptOnTheCheckedPackage()
+        {
+            string[] args = UpdateService.InstallerArguments(@"C:\Apps\Gloam", @"C:\Data\Updates\Gloam-1.11.0.zip", ValidSha, 4242);
+
+            Assert.Equal(@"C:\Apps\Gloam\install.ps1", args[Array.IndexOf(args, "-File") + 1]);
+            Assert.Equal(@"C:\Data\Updates\Gloam-1.11.0.zip", args[Array.IndexOf(args, "-Package") + 1]);
+            Assert.Equal(ValidSha, args[Array.IndexOf(args, "-Sha256") + 1]);
+            Assert.Equal("4242", args[Array.IndexOf(args, "-WaitPid") + 1]);
+            Assert.Contains("-Launch", args);
+        }
+
+        [Fact]
+        public void DisplayVersion_IsThreePart()
+        {
+            var service = new UpdateService(new HttpClient(new FakeHandler(_ => throw new InvalidOperationException())), _tempDir, new Version(1, 10, 8));
+
+            Assert.Equal("v1.10.8", service.DisplayVersion);
+        }
+
+        private UpdateService Service(FakeHandler handler)
+            => new(UpdateService.CreateClient(handler), _tempDir, new Version(1, 10, 8));
+
+        private static UpdateRelease ReleaseFor(byte[] payload)
+            => new(new Version(1, 11, 0), "v1.11.0", "",
+                   $"{Prefix}v1.11.0/Gloam-1.11.0.zip",
+                   Convert.ToHexString(SHA256.HashData(payload)).ToLowerInvariant(),
+                   payload.Length);
+
+        private static HttpResponseMessage Json(string body)
+            => new(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+
+        private sealed class FakeHandler : HttpMessageHandler
+        {
+            private readonly Func<HttpRequestMessage, HttpResponseMessage> _respond;
+
+            public FakeHandler(Func<HttpRequestMessage, HttpResponseMessage> respond) => _respond = respond;
+
+            public List<Uri> Requests { get; } = new();
+
+            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            {
+                Requests.Add(request.RequestUri!);
+                return Task.FromResult(_respond(request));
             }
         }
     }
