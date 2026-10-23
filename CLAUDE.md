@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Gloam is a Windows tray app (WPF, .NET 8) that fixes washed-out SDR content in Windows HDR mode with per-monitor gamma LUTs. It also provides a CAT16-based night mode, per-game "Game Lab" profiles, and ArgyllCMS-driven colorimeter calibration that installs native Windows MHC2 ICC profiles.
+Gloam is a Windows tray app (WPF, .NET 8) that fixes washed-out SDR content in Windows HDR mode with per-monitor gamma LUTs. It also provides a CAT16-based night mode, "Game Lab" Normal/Media profile switching driven by a game library, and ArgyllCMS-driven colorimeter calibration that installs native Windows MHC2 ICC profiles.
 
 ## Commands
 
@@ -25,7 +25,7 @@ dotnet run --project src/Gloam.Cli -- check-lut 2.2 200 --algorithm perceptual -
 dotnet run --project src/Gloam.Cli -- night 2200 --algorithm ultra --basis rec2020 --json -
 ```
 
-`src/Gloam.DebugMonitors` dumps `MonitorManager.EnumerateMonitors()` as JSON, which is useful for display-topology issues. `Gloam.exe --smoke` runs a launch smoke test against isolated data directories.
+`src/Gloam.DebugMonitors` dumps `MonitorManager.EnumerateMonitors()` as JSON, which is useful for display-topology issues. `Gloam.exe --smoke` runs a launch smoke test against isolated data directories. `Gloam.exe --profile-set normal|media|auto` sets the sticky Game Lab profile selection and forwards it to a running instance over a named pipe (`ProfileCommand.cs`).
 
 ### Test notes
 

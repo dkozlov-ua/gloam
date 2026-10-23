@@ -22,6 +22,12 @@ namespace Gloam.Core
     /// Single owner for Game Mode persistence and foreground display policy. The tray and
     /// dashboard are views over this coordinator; neither is allowed to independently
     /// decide which executable owns the output pipeline.
+    ///
+    /// There are two display profiles. Normal is each monitor's own settings and needs no
+    /// session. Media is the single Game Lab settings set. Under
+    /// <see cref="DisplayProfileSelection.Automatic"/> a library game activates Media and
+    /// leaving it restores Normal; a manual Normal or Media selection is sticky and
+    /// bypasses foreground policy until Automatic is selected again.
     /// </summary>
     public sealed class GamerModeCoordinator : IDisposable
     {
@@ -57,7 +63,7 @@ namespace Gloam.Core
             _settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _applyService = applyService ?? throw new ArgumentNullException(nameof(applyService));
             _monitorSnapshot = monitorSnapshot ?? throw new ArgumentNullException(nameof(monitorSnapshot));
-            _runningAppSnapshot = runningAppSnapshot ?? (() => CaptureRunningApps(_settings.GamerProfiles));
+            _runningAppSnapshot = runningAppSnapshot ?? (() => CaptureRunningApps(EffectiveProfiles()));
             _foregroundCoalescer = new LatestValueCoalescer<string, ForegroundObservation>(
                 (_, observation, token) =>
                 {
@@ -78,6 +84,8 @@ namespace Gloam.Core
         public bool Enabled => _settings.GamerModeEnabled &&
             Volatile.Read(ref _emergencySuspended) == 0;
         public IReadOnlyList<GamerProfileRule> Profiles => _settings.GamerProfiles;
+        public GamerProfileRule MediaProfile => _settings.MediaProfile;
+        public DisplayProfileSelection ProfileSelection => _settings.ProfileSelection;
         public IReadOnlyList<GamerSessionSnapshot> ActiveSessions => _applyService.ActiveGamerSessions;
 
         public string LastExternalForegroundApp
@@ -98,6 +106,23 @@ namespace Gloam.Core
         public bool TrySetProfiles(IEnumerable<GamerProfileRule>? profiles) =>
             _settings.TrySetGamerProfiles(profiles);
 
+        public bool TrySetMediaProfile(GamerProfileRule? profile) =>
+            _settings.TrySetMediaProfile(profile);
+
+        /// <summary>
+        /// Persists the profile selection. The settings-changed event re-evaluates
+        /// immediately, so the new profile reaches the displays without waiting for focus.
+        /// </summary>
+        public bool TrySetProfileSelection(DisplayProfileSelection selection)
+        {
+            if (!_settings.TrySetProfileSelection(selection)) return false;
+            // An explicit choice is the user re-arming output, exactly like resuming Game
+            // Mode; without this a panic suspend would silently swallow `--profile-set media`.
+            if (Interlocked.Exchange(ref _emergencySuspended, 0) != 0)
+                ReevaluateLatest(immediate: true);
+            return true;
+        }
+
         public void ObserveForeground(string appName, string? executablePath, Dxgi.RECT? appBounds)
         {
             if (Volatile.Read(ref _disposed) != 0) return;
@@ -105,6 +130,7 @@ namespace Gloam.Core
             if (appName.Equals("Gloam.exe", StringComparison.OrdinalIgnoreCase)) return;
 
             bool candidateIsGame = Enabled &&
+                _settings.ProfileSelection == DisplayProfileSelection.Automatic &&
                 GamerExecutableSafety.IsSafeProfileTarget(appName) &&
                 _settings.GamerProfiles.Any(profile =>
                     profile.Enabled && MatchesForeground(profile, appName, executablePath));
@@ -146,8 +172,18 @@ namespace Gloam.Core
 
         internal void RefreshRunningApps()
         {
-            if (Enabled && _settings.GamerProfiles.Any(profile => profile.Enabled && profile.ApplyWhileRunning))
+            if (Enabled && _settings.ProfileSelection == DisplayProfileSelection.Automatic &&
+                EffectiveProfiles().Any(profile => profile.Enabled && profile.ApplyWhileRunning))
                 ReevaluateLatest();
+        }
+
+        /// <summary>Library entries composed with the Media profile, in saved order.</summary>
+        private IReadOnlyList<GamerProfileRule> EffectiveProfiles()
+        {
+            GamerProfileRule media = _settings.MediaProfile;
+            return _settings.GamerProfiles
+                .Select(entry => GamerMediaProfile.ForGame(media, entry))
+                .ToList();
         }
 
         internal static IReadOnlyList<RunningAppObservation> CaptureRunningApps(IEnumerable<GamerProfileRule> profiles)
@@ -183,7 +219,7 @@ namespace Gloam.Core
         /// <summary>
         /// In-memory fail-safe used by the panic hotkey. It works even if the settings
         /// directory is unavailable, ensuring a saved profile cannot re-arm itself after
-        /// the emergency gamma clear.
+        /// the emergency gamma clear. It also overrides a manual Media selection.
         /// </summary>
         public void EmergencySuspend()
         {
@@ -234,9 +270,24 @@ namespace Gloam.Core
 
                     var assignments = new List<GamerSessionAssignment>();
                     GamerProfileRule? profile = null;
-                    if (Enabled)
+                    DisplayProfileSelection selection = _settings.ProfileSelection;
+                    if (selection == DisplayProfileSelection.Media &&
+                        Volatile.Read(ref _emergencySuspended) == 0)
                     {
-                        IReadOnlyList<GamerProfileRule> profiles = _settings.GamerProfiles;
+                        // A manual selection has no game window to intersect, so window
+                        // targeting widens to every display. The foreground app plays no part,
+                        // which keeps the session (and its Gameplay Lock) steady across focus.
+                        GamerProfileRule manual = GamerMediaProfile.ForManualSession(_settings.MediaProfile);
+                        foreach (MonitorInfo monitor in activeMonitors)
+                        {
+                            if (manual.DisplayScope != GamerDisplayScope.SpecificDisplay ||
+                                TargetsMonitor(manual, monitor, null, activeMonitors.Count))
+                                assignments.Add(new GamerSessionAssignment(monitor, manual, Manual: true));
+                        }
+                    }
+                    else if (selection == DisplayProfileSelection.Automatic && Enabled)
+                    {
+                        IReadOnlyList<GamerProfileRule> profiles = EffectiveProfiles();
                         IReadOnlyList<RunningAppObservation> runningApps = profiles.Any(candidate =>
                             candidate.Enabled && candidate.ApplyWhileRunning)
                             ? _runningAppSnapshot() : Array.Empty<RunningAppObservation>();
@@ -287,7 +338,7 @@ namespace Gloam.Core
                     if (!blockChanged && !gamerChanged) return;
                     IReadOnlyList<GamerSessionSnapshot> sessions = _applyService.ActiveGamerSessions;
                     Log.Info($"GamerModeCoordinator: foreground policy changed. App={observation.AppName}, " +
-                             $"night-blocked={blocked.Count}, gamer-displays={assignments.Count}");
+                             $"selection={selection}, night-blocked={blocked.Count}, gamer-displays={assignments.Count}");
                     try
                     {
                         PolicyChanged?.Invoke(new GamerPolicyChange(

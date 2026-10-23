@@ -447,12 +447,12 @@
                             </ItemsControl.ItemsPanel>
                         </ItemsControl>
 
-                        <!-- Game Lab. Always shown (no collapse) and laid out like the former
-                             standalone Game Lab window: one status strip, then a virtualized
-                             library beside a single selected-profile editor. The workspace has a
-                             fixed height because it sits in the dashboard's ScrollViewer, where a
-                             star-sized row would measure to infinity and defeat list virtualization,
-                             so 100+ games never create 100+ editors. -->
+                        <!-- Game Lab. Always shown (no collapse): one status strip with the
+                             Automatic / Normal / Media selector, then a virtualized game library
+                             beside the single Media profile editor every game shares. The
+                             workspace has a fixed height because it sits in the dashboard's
+                             ScrollViewer, where a star-sized row would measure to infinity and
+                             defeat list virtualization for 100+ games. -->
                         <StackPanel x:Name="GameLabSection" Margin="0,24,0,0">
                             <Grid Margin="0,0,0,10">
                                 <TextBlock Text="Game Lab" FontFamily="{StaticResource DisplayFont}"
@@ -468,6 +468,7 @@
                                         <ColumnDefinition Width="1"/>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
                                     <StackPanel VerticalAlignment="Center">
                                         <TextBlock Text="{Binding GamerModeStateTitle}" Style="{StaticResource Kicker}"/>
@@ -477,7 +478,7 @@
                                     </StackPanel>
                                     <Border Grid.Column="1" Background="{DynamicResource ThemeBorder}" Margin="0,1,14,1"/>
                                     <StackPanel Grid.Column="2" VerticalAlignment="Center">
-                                        <TextBlock Text="CURRENT GAME" Style="{StaticResource FieldLabel}"/>
+                                        <TextBlock Text="ACTIVE PROFILE" Style="{StaticResource FieldLabel}"/>
                                         <TextBlock Text="{Binding GamerMode.ActiveSessionSummary}"
                                                    FontFamily="{StaticResource DisplayFont}" FontWeight="Bold" FontSize="13"
                                                    Foreground="{DynamicResource ThemeText}" Margin="0,2,0,0"
@@ -486,9 +487,19 @@
                                                    Foreground="{DynamicResource ThemeTextDim}"
                                                    TextTrimming="CharacterEllipsis" MaxHeight="14"/>
                                     </StackPanel>
-                                    <!-- Only the resume action is offered: pausing is hidden, but a
-                                         Game Mode paused earlier (saved in settings) needs a way back. -->
-                                    <Button Grid.Column="3" Content="{Binding GamerModeToggleLabel}"
+                                    <!-- Same choice as the `profile-set` command line (auto, normal, media).
+                                         A manual choice is sticky until Automatic is chosen. -->
+                                    <StackPanel Grid.Column="3" VerticalAlignment="Center" Margin="15,0,0,0">
+                                        <TextBlock Text="PROFILE" Style="{StaticResource FieldLabel}"/>
+                                        <ComboBox x:Name="ProfileSelectionBox" Width="130" Margin="0,2,0,0"
+                                                  ItemsSource="{Binding AvailableProfileSelections}" DisplayMemberPath="Label"
+                                                  SelectedValuePath="Value" SelectedValue="{Binding ProfileSelection, Mode=TwoWay}"
+                                                  ToolTip="Automatic switches to Media while a library game is active. Normal and Media stay until you choose Automatic."
+                                                  AutomationProperties.AutomationId="ProfileSelection"/>
+                                    </StackPanel>
+                                    <!-- Only the resume action is offered: pausing is hidden, but
+                                         switching paused earlier (saved in settings) needs a way back. -->
+                                    <Button Grid.Column="4" Content="{Binding GamerModeToggleLabel}"
                                             Command="{Binding ToggleGamerModeCommand}"
                                             Margin="15,0,0,0"
                                             VerticalAlignment="Center" Padding="15,8"
@@ -593,36 +604,59 @@
                                                     <DataTemplate>
                                                         <Grid>
                                                             <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="Auto"/>
                                                                 <ColumnDefinition Width="*"/>
                                                                 <ColumnDefinition Width="Auto"/>
                                                             </Grid.ColumnDefinitions>
-                                                            <StackPanel>
+                                                            <CheckBox x:Name="GameEnabledBox" VerticalAlignment="Center" Margin="0,0,7,0"
+                                                                      IsChecked="{Binding Enabled, Mode=TwoWay}"
+                                                                      ToolTip="Switch to Media while this game is active"
+                                                                      AutomationProperties.Name="{Binding GameTitle}"/>
+                                                            <StackPanel Grid.Column="1">
                                                                 <TextBlock Text="{Binding GameTitle}" ToolTip="{Binding GameTitle}"
                                                                            FontFamily="{StaticResource DisplayFont}"
                                                                            FontWeight="Bold" FontSize="11" TextTrimming="CharacterEllipsis"
                                                                            Foreground="{DynamicResource ThemeText}"/>
-                                                                <TextBlock Text="{Binding AppName}" ToolTip="{Binding AppName}"
+                                                                <TextBlock Text="{Binding AppName}" ToolTip="{Binding ExecutableIdentityLabel}"
                                                                            FontFamily="{StaticResource MonoFont}"
-                                                                           FontSize="9" TextTrimming="CharacterEllipsis"
-                                                                           Foreground="{DynamicResource ThemeTextDim}"/>
+                                                                           FontSize="9" TextTrimming="CharacterEllipsis">
+                                                                    <TextBlock.Style>
+                                                                        <Style TargetType="TextBlock">
+                                                                            <Setter Property="Foreground" Value="{DynamicResource ThemeTextDim}"/>
+                                                                            <Style.Triggers>
+                                                                                <DataTrigger Binding="{Binding HasExecutablePath}" Value="False">
+                                                                                    <Setter Property="Foreground" Value="{DynamicResource ThemeAmber}"/>
+                                                                                </DataTrigger>
+                                                                            </Style.Triggers>
+                                                                        </Style>
+                                                                    </TextBlock.Style>
+                                                                </TextBlock>
                                                             </StackPanel>
-                                                            <Border Grid.Column="1" Width="6" Height="6" CornerRadius="3"
-                                                                    VerticalAlignment="Center" Margin="8,0,1,0">
-                                                                <Border.Style>
-                                                                    <Style TargetType="Border">
-                                                                        <Setter Property="Background" Value="{DynamicResource ThemeBorder}"/>
-                                                                        <Style.Triggers>
-                                                                            <DataTrigger Binding="{Binding Enabled}" Value="True">
-                                                                                <Setter Property="Background" Value="{DynamicResource ThemeAccent}"/>
-                                                                            </DataTrigger>
-                                                                        </Style.Triggers>
-                                                                    </Style>
-                                                                </Border.Style>
-                                                            </Border>
+                                                            <Button x:Name="RemoveGameButton" Grid.Column="2" Content="✕"
+                                                                    Style="{StaticResource BrutIconButton}" FontSize="10"
+                                                                    Padding="5,2" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                                    ToolTip="Remove from library"
+                                                                    Command="{Binding DataContext.RemoveGamerProfileCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                    CommandParameter="{Binding}"/>
                                                         </Grid>
                                                     </DataTemplate>
                                                 </ListBox.ItemTemplate>
                                             </ListBox>
+
+                                            <TextBlock Grid.Row="2" Text="No games yet. Find installed games or add the game currently running."
+                                                       Foreground="{DynamicResource ThemeTextDim}" FontSize="10"
+                                                       TextWrapping="Wrap" Margin="2,4,2,0" VerticalAlignment="Top">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding GamerMode.HasProfiles}" Value="False">
+                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
 
                                             <TextBlock Grid.Row="3" Text="ADD A RUNNING GAME" Style="{StaticResource FieldLabel}"
                                                        Margin="2,8,0,5"/>
@@ -682,298 +716,222 @@
                                     <Border Grid.Column="2" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1"
                                             Background="{DynamicResource ThemeSurface}" Padding="14">
                                         <Grid>
-                                            <Border HorizontalAlignment="Center" VerticalAlignment="Center" Padding="24">
-                                                <Border.Style>
-                                                    <Style TargetType="Border">
-                                                        <Setter Property="Visibility" Value="Collapsed"/>
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding GamerMode.HasProfiles}" Value="False">
-                                                                <Setter Property="Visibility" Value="Visible"/>
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </Border.Style>
-                                                <StackPanel>
-                                                    <TextBlock Text="No games yet" FontFamily="{StaticResource DisplayFont}"
-                                                               FontWeight="ExtraBold" FontSize="20" HorizontalAlignment="Center"/>
-                                                    <TextBlock Text="Find installed games or add the game currently running."
-                                                               Foreground="{DynamicResource ThemeTextDim}" FontSize="11"
-                                                               Margin="0,5,0,0" HorizontalAlignment="Center"/>
+                                            <!-- One editor for the Media profile. Library rows only carry identity. -->
+                                            <Grid x:Name="MediaProfileEditor" DataContext="{Binding GamerMode.MediaProfile}">
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="*"/>
+                                                </Grid.RowDefinitions>
+
+                                                <StackPanel Grid.Row="0" Margin="0,0,0,10">
+                                                    <TextBlock Text="Media profile" FontFamily="{StaticResource DisplayFont}"
+                                                               FontSize="18" FontWeight="ExtraBold"
+                                                               Foreground="{DynamicResource ThemeText}"/>
+                                                    <TextBlock Text="{Binding EffectSummary}" FontSize="9" Margin="0,2,0,0"
+                                                               Foreground="{DynamicResource ThemeTextDim}" TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Text="Every game in your library uses these settings. Normal is each monitor's own settings."
+                                                               FontSize="9" Margin="0,2,0,0" TextWrapping="Wrap"
+                                                               Foreground="{DynamicResource ThemeTextDim}"/>
                                                 </StackPanel>
-                                            </Border>
 
-                                            <ContentControl Content="{Binding GamerMode.SelectedProfile}">
-                                                <ContentControl.ContentTemplate>
-                                                    <DataTemplate>
-                                                        <Grid>
-                                                            <Grid.RowDefinitions>
-                                                                <RowDefinition Height="Auto"/>
-                                                                <RowDefinition Height="Auto"/>
-                                                                <RowDefinition Height="Auto"/>
-                                                                <RowDefinition Height="Auto"/>
-                                                                <RowDefinition Height="Auto"/>
-                                                                <RowDefinition Height="*"/>
-                                                            </Grid.RowDefinitions>
-
-                                                            <Grid Grid.Row="0" Margin="0,0,0,10">
-                                                                <Grid.ColumnDefinitions>
-                                                                    <ColumnDefinition Width="*"/>
-                                                                    <ColumnDefinition Width="Auto"/>
-                                                                    <ColumnDefinition Width="Auto"/>
-                                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Grid.Row="1">
+                                                    <TextBlock Text="CHOOSE A LOOK" Style="{StaticResource FieldLabel}" Margin="0,0,0,5" Visibility="Collapsed"/>
+                                                    <ListBox ItemsSource="{Binding AvailableQuickLooks}" Visibility="Collapsed"
+                                                             SelectedValuePath="Value"
+                                                             SelectedValue="{Binding PictureIntent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                             Background="Transparent" BorderThickness="0" Padding="0"
+                                                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                                             ItemContainerStyle="{StaticResource QuickLookRow}">
+                                                        <ListBox.ItemsPanel>
+                                                            <ItemsPanelTemplate><UniformGrid Rows="1"/></ItemsPanelTemplate>
+                                                        </ListBox.ItemsPanel>
+                                                        <ListBox.ItemTemplate>
+                                                            <DataTemplate>
                                                                 <StackPanel>
-                                                                    <TextBlock Text="{Binding GameTitle}" FontFamily="{StaticResource DisplayFont}"
-                                                                               FontSize="18" FontWeight="ExtraBold" TextTrimming="CharacterEllipsis"
+                                                                    <TextBlock Text="{Binding Label}" FontFamily="{StaticResource DisplayFont}"
+                                                                               FontWeight="Bold" FontSize="11"
                                                                                Foreground="{DynamicResource ThemeText}"/>
-                                                                    <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
-                                                                        <TextBlock Text="{Binding AppName}" FontFamily="{StaticResource MonoFont}"
-                                                                                   FontSize="9" Foreground="{DynamicResource ThemeTextDim}"
-                                                                                   TextTrimming="CharacterEllipsis" ToolTip="{Binding ExecutablePath}"/>
-                                                                        <TextBlock Text="  ·  " FontSize="9" Foreground="{DynamicResource ThemeTextDim}"/>
-                                                                        <TextBlock Text="{Binding ExecutableIdentityLabel}" FontSize="9">
-                                                                            <TextBlock.Style>
-                                                                                <Style TargetType="TextBlock">
-                                                                                    <Setter Property="Foreground" Value="{DynamicResource ThemeAccent}"/>
-                                                                                    <Style.Triggers>
-                                                                                        <DataTrigger Binding="{Binding HasExecutablePath}" Value="False">
-                                                                                            <Setter Property="Foreground" Value="{DynamicResource ThemeAmber}"/>
-                                                                                        </DataTrigger>
-                                                                                    </Style.Triggers>
-                                                                                </Style>
-                                                                            </TextBlock.Style>
-                                                                        </TextBlock>
-                                                                        <TextBlock Text="  ·  " FontSize="9" Foreground="{DynamicResource ThemeTextDim}"/>
-                                                                        <TextBlock Text="{Binding HdrSupportLabel}" FontSize="9">
-                                                                            <TextBlock.Style>
-                                                                                <Style TargetType="TextBlock">
-                                                                                    <Setter Property="Foreground" Value="{DynamicResource ThemeTextDim}"/>
-                                                                                    <Style.Triggers>
-                                                                                        <DataTrigger Binding="{Binding IsHdrCapable}" Value="True">
-                                                                                            <Setter Property="Foreground" Value="{DynamicResource ThemeAccent}"/>
-                                                                                        </DataTrigger>
-                                                                                    </Style.Triggers>
-                                                                                </Style>
-                                                                            </TextBlock.Style>
-                                                                        </TextBlock>
-                                                                    </StackPanel>
+                                                                    <TextBlock Text="{Binding Description}" FontSize="8"
+                                                                               Foreground="{DynamicResource ThemeTextDim}" Margin="0,1,0,0"/>
                                                                 </StackPanel>
-                                                                <CheckBox Grid.Column="1" Content="Auto-apply"
-                                                                          IsChecked="{Binding Enabled, Mode=TwoWay}"
-                                                                          VerticalAlignment="Center" Margin="12,0"/>
-                                                                <Button Grid.Column="2" Content="Remove" Style="{StaticResource BrutIconButton}"
-                                                                        Command="{Binding DataContext.RemoveGamerProfileCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                                        CommandParameter="{Binding}" VerticalAlignment="Center"/>
-                                                            </Grid>
+                                                            </DataTemplate>
+                                                        </ListBox.ItemTemplate>
+                                                    </ListBox>
+                                                    <TextBlock Text="{Binding IntentDescription}" Margin="0,6,0,0" Visibility="Collapsed"
+                                                               Foreground="{DynamicResource ThemeTextDim}" FontSize="10"
+                                                               TextWrapping="Wrap" MaxHeight="30"/>
+                                                </StackPanel>
 
-                                                            <StackPanel Grid.Row="1">
-                                                                <TextBlock Text="CHOOSE A LOOK" Style="{StaticResource FieldLabel}" Margin="0,0,0,5" Visibility="Collapsed"/>
-                                                                <ListBox ItemsSource="{Binding AvailableQuickLooks}" Visibility="Collapsed"
-                                                                         SelectedValuePath="Value"
-                                                                         SelectedValue="{Binding PictureIntent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                                         Background="Transparent" BorderThickness="0" Padding="0"
-                                                                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                                                         ItemContainerStyle="{StaticResource QuickLookRow}">
-                                                                    <ListBox.ItemsPanel>
-                                                                        <ItemsPanelTemplate><UniformGrid Rows="1"/></ItemsPanelTemplate>
-                                                                    </ListBox.ItemsPanel>
-                                                                    <ListBox.ItemTemplate>
-                                                                        <DataTemplate>
-                                                                            <StackPanel>
-                                                                                <TextBlock Text="{Binding Label}" FontFamily="{StaticResource DisplayFont}"
-                                                                                           FontWeight="Bold" FontSize="11"
-                                                                                           Foreground="{DynamicResource ThemeText}"/>
-                                                                                <TextBlock Text="{Binding Description}" FontSize="8"
-                                                                                           Foreground="{DynamicResource ThemeTextDim}" Margin="0,1,0,0"/>
-                                                                            </StackPanel>
-                                                                        </DataTemplate>
-                                                                    </ListBox.ItemTemplate>
-                                                                </ListBox>
-                                                                <TextBlock Text="{Binding IntentDescription}" Margin="0,6,0,0" Visibility="Collapsed"
-                                                                           Foreground="{DynamicResource ThemeTextDim}" FontSize="10"
-                                                                           TextWrapping="Wrap" MaxHeight="30"/>
-                                                            </StackPanel>
-
-                                                            <Grid Grid.Row="2" Margin="0,10,0,0">
-                                                                <Grid.ColumnDefinitions>
-                                                                    <ColumnDefinition Width="*"/>
-                                                                    <ColumnDefinition Width="*"/>
-                                                                    <ColumnDefinition Width="*"/>
-                                                                </Grid.ColumnDefinitions>
-                                                                <StackPanel Grid.Column="0" Margin="0,0,14,0">
-                                                                    <Grid>
-                                                                        <TextBlock Text="DARK-AREA VISIBILITY" Style="{StaticResource FieldLabel}"/>
-                                                                        <TextBlock Text="{Binding ShadowDetailPlainLabel}" HorizontalAlignment="Right"
-                                                                                   FontSize="9" Foreground="{DynamicResource ThemeTextDim}"/>
-                                                                    </Grid>
-                                                                    <Slider Minimum="0" Maximum="100" Value="{Binding ShadowDetailPercent}"
-                                                                            TickFrequency="5" IsSnapToTickEnabled="False"/>
-                                                                </StackPanel>
-                                                                <StackPanel Grid.Column="1" Margin="0,0,14,0">
-                                                                    <Grid>
-                                                                        <TextBlock Text="BRIGHTNESS" Style="{StaticResource FieldLabel}"/>
-                                                                        <CheckBox Content="Override" HorizontalAlignment="Right"
-                                                                                  VerticalAlignment="Center" Margin="0,-2,0,-2"
-                                                                                  IsChecked="{Binding OverrideBrightness, Mode=TwoWay}"
-                                                                                  ToolTip="Use this brightness instead of the monitor's while the game is active."/>
-                                                                    </Grid>
-                                                                    <Slider Minimum="10" Maximum="100" Value="{Binding Brightness}"
-                                                                            TickFrequency="1" IsSnapToTickEnabled="True"
-                                                                            IsEnabled="{Binding OverrideBrightness}"/>
-                                                                    <TextBlock Text="{Binding BrightnessLabel}" FontSize="9"
-                                                                               Foreground="{DynamicResource ThemeTextDim}"/>
-                                                                </StackPanel>
-                                                                <StackPanel Grid.Column="2" Margin="0,0,0,0" VerticalAlignment="Center" Visibility="Collapsed">
-                                                                    <CheckBox Content="Keep this look steady while I play"
-                                                                              IsChecked="{Binding GameplayLock, Mode=TwoWay}"/>
-                                                                    <TextBlock Text="Prevents scheduled fades until you leave the game."
-                                                                               Margin="24,2,0,0" FontSize="9" TextWrapping="Wrap"
-                                                                               Foreground="{DynamicResource ThemeTextDim}"/>
-                                                                </StackPanel>
-                                                            </Grid>
-
-                                                            <Grid Grid.Row="3" Margin="0,10,0,0" Visibility="Collapsed">
-                                                                <Grid.ColumnDefinitions>
-                                                                    <ColumnDefinition Width="*"/>
-                                                                    <ColumnDefinition Width="*"/>
-                                                                </Grid.ColumnDefinitions>
-                                                                <StackPanel Grid.Column="0" Margin="0,0,14,0">
-                                                                    <TextBlock Text="NIGHT WARMTH" Style="{StaticResource FieldLabel}"/>
-                                                                    <Slider Minimum="1900" Maximum="5000" Value="{Binding NightOpsKelvin}"
-                                                                            TickFrequency="100"/>
-                                                                    <TextBlock Text="{Binding NightOpsKelvin, StringFormat={}{0} K}" FontSize="9"
-                                                                               Foreground="{DynamicResource ThemeTextDim}"/>
-                                                                </StackPanel>
-                                                                <StackPanel Grid.Column="1" Margin="10,0,0,0">
-                                                                    <TextBlock Text="COLOR SEPARATION" Style="{StaticResource FieldLabel}"/>
-                                                                    <Slider Minimum="0" Maximum="100" Value="{Binding NightOpsStrengthPercent}"
-                                                                            TickFrequency="5"/>
-                                                                    <TextBlock Text="{Binding NightOpsStrengthPercent, StringFormat={}{0:F0}% preservation}" FontSize="9"
-                                                                               Foreground="{DynamicResource ThemeTextDim}"/>
-                                                                </StackPanel>
-                                                            </Grid>
-
-                                                            <Expander Grid.Row="4" Header="Advanced signal &amp; display controls"
-                                                                      Margin="0,9,0,0" Foreground="{DynamicResource ThemeText}"
-                                                                      IsExpanded="{Binding DataContext.IsGameProfileAdvancedExpanded, RelativeSource={RelativeSource AncestorType=Window}, Mode=TwoWay}">
-                                                                <Grid x:Name="AdvancedControlsGrid" Margin="0,7,0,0">
-                                                                    <Grid.ColumnDefinitions>
-                                                                        <ColumnDefinition Width="*"/>
-                                                                        <ColumnDefinition Width="*"/>
-                                                                        <ColumnDefinition Width="*"/>
-                                                                        <ColumnDefinition Width="*"/>
-                                                                        <ColumnDefinition Width="*"/>
-                                                                        <ColumnDefinition Width="*"/>
-                                                                        <ColumnDefinition Width="*"/>
-                                                                        <ColumnDefinition Width="*"/>
-                                                                    </Grid.ColumnDefinitions>
-                                                                    <Grid.RowDefinitions>
-                                                                        <RowDefinition Height="Auto"/>
-                                                                        <RowDefinition Height="Auto"/>
-                                                                        <RowDefinition Height="Auto"/>
-                                                                        <RowDefinition Height="Auto"/>
-                                                                        <RowDefinition Height="Auto"/>
-                                                                    </Grid.RowDefinitions>
-                                                                    <CheckBox x:Name="ApplyWhileRunningBox" Grid.Row="4" Grid.ColumnSpan="8" Margin="0,9,0,0"
-                                                                              Content="Apply while the app is running, even without focus"
-                                                                              IsChecked="{Binding ApplyWhileRunning, Mode=TwoWay}"
-                                                                              ToolTip="Use One specific display to keep the profile active on a chosen monitor, including when the app is minimized. A focused profile takes priority; otherwise the first matching running profile is used."/>
-
-                                                                    <StackPanel Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,0,9,0">
-                                                                        <TextBlock Text="PROFILE NAME" Style="{StaticResource FieldLabel}"/>
-                                                                        <TextBox x:Name="AdvancedProfileNameBox"
-                                                                                 Text="{Binding DisplayName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
-                                                                    </StackPanel>
-                                                                    <StackPanel Grid.Row="0" Grid.Column="2" Grid.ColumnSpan="2" Margin="0,0,9,0">
-                                                                        <TextBlock Text="HDR SUPPORT" Style="{StaticResource FieldLabel}"/>
-                                                                        <ComboBox x:Name="AdvancedHdrSupportBox"
-                                                                                  Margin="0"
-                                                                                  ItemsSource="{Binding AvailableHdrCapabilities}" DisplayMemberPath="Label"
-                                                                                  SelectedValuePath="Value" SelectedValue="{Binding HdrCapability, Mode=TwoWay}"
-                                                                                  ToolTip="Detected from local game configuration; you can correct it here"/>
-                                                                    </StackPanel>
-                                                                    <StackPanel Grid.Row="0" Grid.Column="4" Grid.ColumnSpan="2" Margin="0,0,9,0">
-                                                                        <TextBlock Text="EXPECTED SIGNAL" Style="{StaticResource FieldLabel}"/>
-                                                                        <ComboBox x:Name="AdvancedExpectedSignalBox"
-                                                                                  Margin="0"
-                                                                                  ItemsSource="{Binding AvailableHdrExpectations}" DisplayMemberPath="Label"
-                                                                                  SelectedValuePath="Value" SelectedValue="{Binding HdrExpectation, Mode=TwoWay}"/>
-                                                                    </StackPanel>
-                                                                    <StackPanel Grid.Row="0" Grid.Column="6" Grid.ColumnSpan="2">
-                                                                        <TextBlock Text="TARGET DISPLAYS" Style="{StaticResource FieldLabel}"/>
-                                                                        <ComboBox x:Name="AdvancedTargetDisplaysBox"
-                                                                                  Margin="0"
-                                                                                  ItemsSource="{Binding AvailableDisplayScopes}" DisplayMemberPath="Label"
-                                                                                  SelectedValuePath="Value" SelectedValue="{Binding DisplayScope, Mode=TwoWay}"/>
-                                                                    </StackPanel>
-
-                                                                    <ComboBox Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="8" Margin="0,5,0,0"
-                                                                              Visibility="{Binding IsSpecificDisplay, Converter={StaticResource BoolToVis}}"
-                                                                              ItemsSource="{Binding DataContext.GamerMode.AvailableDisplays, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                                              DisplayMemberPath="Label" SelectedValuePath="DevicePath"
-                                                                              SelectedValue="{Binding MonitorDevicePath, Mode=TwoWay}"/>
-
-                                                                    <StackPanel Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,7,9,0" Visibility="Collapsed">
-                                                                        <TextBlock Text="NIGHT BEHAVIOR" Style="{StaticResource FieldLabel}"/>
-                                                                        <ComboBox x:Name="AdvancedNightBehaviorBox"
-                                                                                  Margin="0"
-                                                                                  ItemsSource="{Binding AvailableNightPolicies}" DisplayMemberPath="Label"
-                                                                                  SelectedValuePath="Value" SelectedValue="{Binding NightPolicy, Mode=TwoWay}"/>
-                                                                    </StackPanel>
-                                                                    <StackPanel Grid.Row="2" Grid.Column="2" Grid.ColumnSpan="2" Margin="0,7,9,0">
-                                                                        <Grid>
-                                                                            <TextBlock Text="GAMMA" Style="{StaticResource FieldLabel}"/>
-                                                                            <CheckBox Content="Override" HorizontalAlignment="Right"
-                                                                                      VerticalAlignment="Center" Margin="0,-2,0,-2"
-                                                                                      IsChecked="{Binding OverrideGamma, Mode=TwoWay}"/>
-                                                                        </Grid>
-                                                                        <ComboBox x:Name="AdvancedGammaModeBox" Margin="0"
-                                                                                  IsEnabled="{Binding OverrideGamma}"
-                                                                                  ItemsSource="{Binding AvailableGammaModes}" DisplayMemberPath="Label"
-                                                                                  SelectedValuePath="Value" SelectedValue="{Binding GammaMode, Mode=TwoWay}">
-                                                                            <!-- The native Windows curve is hidden as a choice; a profile
-                                                                                 already on it (Cinematic HDR) still shows it as selected. -->
-                                                                            <ComboBox.ItemContainerStyle>
-                                                                                <Style TargetType="ComboBoxItem" BasedOn="{StaticResource {x:Type ComboBoxItem}}">
-                                                                                    <Style.Triggers>
-                                                                                        <DataTrigger Binding="{Binding Value}" Value="WindowsDefault">
-                                                                                            <Setter Property="Visibility" Value="Collapsed"/>
-                                                                                        </DataTrigger>
-                                                                                    </Style.Triggers>
-                                                                                </Style>
-                                                                            </ComboBox.ItemContainerStyle>
-                                                                        </ComboBox>
-                                                                    </StackPanel>
-                                                                    <StackPanel Grid.Row="2" Grid.Column="4" Grid.ColumnSpan="2" Margin="0,7,9,0">
-                                                                        <TextBlock Text="PAPER WHITE" Style="{StaticResource FieldLabel}"/>
-                                                                        <TextBox x:Name="AdvancedPaperWhiteBox"
-                                                                                 Text="{Binding PaperWhiteNits, UpdateSourceTrigger=PropertyChanged, StringFormat=F0}"/>
-                                                                    </StackPanel>
-                                                                    <StackPanel Grid.Row="2" Grid.Column="6" Grid.ColumnSpan="2" Margin="0,7,0,0">
-                                                                        <TextBlock Text="PEAK NITS" Style="{StaticResource FieldLabel}"/>
-                                                                        <TextBox x:Name="AdvancedPeakNitsBox"
-                                                                                 Text="{Binding PeakNits, UpdateSourceTrigger=PropertyChanged, StringFormat=F0}"/>
-                                                                    </StackPanel>
-
-                                                                    <StackPanel Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="6" Margin="0,7,9,0"
-                                                                                VerticalAlignment="Bottom" Visibility="Collapsed">
-                                                                        <TextBlock Text="NIGHT PLAY SPECTRAL LIMIT" Style="{StaticResource FieldLabel}"/>
-                                                                        <CheckBox Content="Use an optional melanopic ceiling"
-                                                                                  VerticalAlignment="Center"
-                                                                                  IsChecked="{Binding IsNightOpsMelanopicCeilingEnabled, Mode=TwoWay}"
-                                                                                  ToolTip="Off by default because a hard ceiling can alter the selected look."/>
-                                                                    </StackPanel>
-                                                                    <StackPanel Grid.Row="3" Grid.Column="6" Grid.ColumnSpan="2" Margin="0,7,0,0" Visibility="Collapsed">
-                                                                        <TextBlock Text="MELANOPIC CEILING" Style="{StaticResource FieldLabel}"/>
-                                                                        <TextBox x:Name="AdvancedMelanopicCeilingBox"
-                                                                                 IsEnabled="{Binding IsNightOpsMelanopicCeilingEnabled}"
-                                                                                 Text="{Binding NightOpsMelanopicCeiling, UpdateSourceTrigger=PropertyChanged, StringFormat=F1}"/>
-                                                                    </StackPanel>
-                                                                </Grid>
-                                                            </Expander>
+                                                <Grid Grid.Row="2" Margin="0,10,0,0">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel Grid.Column="0" Margin="0,0,14,0">
+                                                        <Grid>
+                                                            <TextBlock Text="DARK-AREA VISIBILITY" Style="{StaticResource FieldLabel}"/>
+                                                            <TextBlock Text="{Binding ShadowDetailPlainLabel}" HorizontalAlignment="Right"
+                                                                       FontSize="9" Foreground="{DynamicResource ThemeTextDim}"/>
                                                         </Grid>
-                                                    </DataTemplate>
-                                                </ContentControl.ContentTemplate>
-                                            </ContentControl>
+                                                        <Slider Minimum="0" Maximum="100" Value="{Binding ShadowDetailPercent}"
+                                                                TickFrequency="5" IsSnapToTickEnabled="False"/>
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="1" Margin="0,0,14,0">
+                                                        <Grid>
+                                                            <TextBlock Text="BRIGHTNESS" Style="{StaticResource FieldLabel}"/>
+                                                            <CheckBox Content="Override" HorizontalAlignment="Right"
+                                                                      VerticalAlignment="Center" Margin="0,-2,0,-2"
+                                                                      IsChecked="{Binding OverrideBrightness, Mode=TwoWay}"
+                                                                      ToolTip="Use this brightness instead of the monitor's while Media is active."/>
+                                                        </Grid>
+                                                        <Slider Minimum="10" Maximum="100" Value="{Binding Brightness}"
+                                                                TickFrequency="1" IsSnapToTickEnabled="True"
+                                                                IsEnabled="{Binding OverrideBrightness}"/>
+                                                        <TextBlock Text="{Binding BrightnessLabel}" FontSize="9"
+                                                                   Foreground="{DynamicResource ThemeTextDim}"/>
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="2" Margin="0,0,0,0" VerticalAlignment="Center" Visibility="Collapsed">
+                                                        <CheckBox Content="Keep this look steady while I play"
+                                                                  IsChecked="{Binding GameplayLock, Mode=TwoWay}"/>
+                                                        <TextBlock Text="Prevents scheduled fades until Media ends."
+                                                                   Margin="24,2,0,0" FontSize="9" TextWrapping="Wrap"
+                                                                   Foreground="{DynamicResource ThemeTextDim}"/>
+                                                    </StackPanel>
+                                                </Grid>
+
+                                                <Grid Grid.Row="3" Margin="0,10,0,0" Visibility="Collapsed">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel Grid.Column="0" Margin="0,0,14,0">
+                                                        <TextBlock Text="NIGHT WARMTH" Style="{StaticResource FieldLabel}"/>
+                                                        <Slider Minimum="1900" Maximum="5000" Value="{Binding NightOpsKelvin}"
+                                                                TickFrequency="100"/>
+                                                        <TextBlock Text="{Binding NightOpsKelvin, StringFormat={}{0} K}" FontSize="9"
+                                                                   Foreground="{DynamicResource ThemeTextDim}"/>
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                                        <TextBlock Text="COLOR SEPARATION" Style="{StaticResource FieldLabel}"/>
+                                                        <Slider Minimum="0" Maximum="100" Value="{Binding NightOpsStrengthPercent}"
+                                                                TickFrequency="5"/>
+                                                        <TextBlock Text="{Binding NightOpsStrengthPercent, StringFormat={}{0:F0}% preservation}" FontSize="9"
+                                                                   Foreground="{DynamicResource ThemeTextDim}"/>
+                                                    </StackPanel>
+                                                </Grid>
+
+                                                <Expander Grid.Row="4" Header="Advanced signal &amp; display controls"
+                                                          Margin="0,9,0,0" Foreground="{DynamicResource ThemeText}"
+                                                          IsExpanded="{Binding DataContext.IsGameProfileAdvancedExpanded, RelativeSource={RelativeSource AncestorType=Window}, Mode=TwoWay}">
+                                                    <Grid x:Name="AdvancedControlsGrid" Margin="0,7,0,0">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <Grid.RowDefinitions>
+                                                            <RowDefinition Height="Auto"/>
+                                                            <RowDefinition Height="Auto"/>
+                                                            <RowDefinition Height="Auto"/>
+                                                            <RowDefinition Height="Auto"/>
+                                                            <RowDefinition Height="Auto"/>
+                                                        </Grid.RowDefinitions>
+                                                        <CheckBox x:Name="ApplyWhileRunningBox" Grid.Row="4" Grid.ColumnSpan="8" Margin="0,9,0,0"
+                                                                  Content="Stay on Media while a library game is running, even without focus"
+                                                                  IsChecked="{Binding ApplyWhileRunning, Mode=TwoWay}"
+                                                                  ToolTip="Use One specific display to keep Media on a chosen monitor, including when the game is minimized. A focused game takes priority; otherwise the first running game in library order is used."/>
+
+                                                        <StackPanel Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="4" Margin="0,0,9,0">
+                                                            <TextBlock Text="EXPECTED SIGNAL" Style="{StaticResource FieldLabel}"/>
+                                                            <ComboBox x:Name="AdvancedExpectedSignalBox"
+                                                                      Margin="0"
+                                                                      ItemsSource="{Binding AvailableHdrExpectations}" DisplayMemberPath="Label"
+                                                                      SelectedValuePath="Value" SelectedValue="{Binding HdrExpectation, Mode=TwoWay}"/>
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Row="0" Grid.Column="4" Grid.ColumnSpan="4">
+                                                            <TextBlock Text="TARGET DISPLAYS" Style="{StaticResource FieldLabel}"/>
+                                                            <ComboBox x:Name="AdvancedTargetDisplaysBox"
+                                                                      Margin="0"
+                                                                      ItemsSource="{Binding AvailableDisplayScopes}" DisplayMemberPath="Label"
+                                                                      SelectedValuePath="Value" SelectedValue="{Binding DisplayScope, Mode=TwoWay}"
+                                                                      ToolTip="With Media chosen manually there is no game window, so game-window targeting covers every display."/>
+                                                        </StackPanel>
+
+                                                        <ComboBox Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="8" Margin="0,5,0,0"
+                                                                  Visibility="{Binding IsSpecificDisplay, Converter={StaticResource BoolToVis}}"
+                                                                  ItemsSource="{Binding DataContext.GamerMode.AvailableDisplays, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                  DisplayMemberPath="Label" SelectedValuePath="DevicePath"
+                                                                  SelectedValue="{Binding MonitorDevicePath, Mode=TwoWay}"/>
+
+                                                        <StackPanel Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,7,9,0" Visibility="Collapsed">
+                                                            <TextBlock Text="NIGHT BEHAVIOR" Style="{StaticResource FieldLabel}"/>
+                                                            <ComboBox x:Name="AdvancedNightBehaviorBox"
+                                                                      Margin="0"
+                                                                      ItemsSource="{Binding AvailableNightPolicies}" DisplayMemberPath="Label"
+                                                                      SelectedValuePath="Value" SelectedValue="{Binding NightPolicy, Mode=TwoWay}"/>
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Row="2" Grid.Column="2" Grid.ColumnSpan="2" Margin="0,7,9,0">
+                                                            <Grid>
+                                                                <TextBlock Text="GAMMA" Style="{StaticResource FieldLabel}"/>
+                                                                <CheckBox Content="Override" HorizontalAlignment="Right"
+                                                                          VerticalAlignment="Center" Margin="0,-2,0,-2"
+                                                                          IsChecked="{Binding OverrideGamma, Mode=TwoWay}"/>
+                                                            </Grid>
+                                                            <ComboBox x:Name="AdvancedGammaModeBox" Margin="0"
+                                                                      IsEnabled="{Binding OverrideGamma}"
+                                                                      ItemsSource="{Binding AvailableGammaModes}" DisplayMemberPath="Label"
+                                                                      SelectedValuePath="Value" SelectedValue="{Binding GammaMode, Mode=TwoWay}">
+                                                                <!-- The native Windows curve is hidden as a choice; a profile
+                                                                     already on it (Cinematic HDR) still shows it as selected. -->
+                                                                <ComboBox.ItemContainerStyle>
+                                                                    <Style TargetType="ComboBoxItem" BasedOn="{StaticResource {x:Type ComboBoxItem}}">
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding Value}" Value="WindowsDefault">
+                                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </ComboBox.ItemContainerStyle>
+                                                            </ComboBox>
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Row="2" Grid.Column="4" Grid.ColumnSpan="2" Margin="0,7,9,0">
+                                                            <TextBlock Text="PAPER WHITE" Style="{StaticResource FieldLabel}"/>
+                                                            <TextBox x:Name="AdvancedPaperWhiteBox"
+                                                                     Text="{Binding PaperWhiteNits, UpdateSourceTrigger=PropertyChanged, StringFormat=F0}"/>
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Row="2" Grid.Column="6" Grid.ColumnSpan="2" Margin="0,7,0,0">
+                                                            <TextBlock Text="PEAK NITS" Style="{StaticResource FieldLabel}"/>
+                                                            <TextBox x:Name="AdvancedPeakNitsBox"
+                                                                     Text="{Binding PeakNits, UpdateSourceTrigger=PropertyChanged, StringFormat=F0}"/>
+                                                        </StackPanel>
+
+                                                        <StackPanel Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="6" Margin="0,7,9,0"
+                                                                    VerticalAlignment="Bottom" Visibility="Collapsed">
+                                                            <TextBlock Text="NIGHT PLAY SPECTRAL LIMIT" Style="{StaticResource FieldLabel}"/>
+                                                            <CheckBox Content="Use an optional melanopic ceiling"
+                                                                      VerticalAlignment="Center"
+                                                                      IsChecked="{Binding IsNightOpsMelanopicCeilingEnabled, Mode=TwoWay}"
+                                                                      ToolTip="Off by default because a hard ceiling can alter the selected look."/>
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Row="3" Grid.Column="6" Grid.ColumnSpan="2" Margin="0,7,0,0" Visibility="Collapsed">
+                                                            <TextBlock Text="MELANOPIC CEILING" Style="{StaticResource FieldLabel}"/>
+                                                            <TextBox x:Name="AdvancedMelanopicCeilingBox"
+                                                                     IsEnabled="{Binding IsNightOpsMelanopicCeilingEnabled}"
+                                                                     Text="{Binding NightOpsMelanopicCeiling, UpdateSourceTrigger=PropertyChanged, StringFormat=F1}"/>
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </Expander>
+                                            </Grid>
                                         </Grid>
                                     </Border>
                                 </Grid>

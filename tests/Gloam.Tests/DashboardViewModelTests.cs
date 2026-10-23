@@ -166,9 +166,8 @@ namespace Gloam.Tests
             GamerProfileRule profile = Assert.Single(gamerMode.Profiles).ToRule();
             Assert.True(added);
             Assert.Equal("arena.exe", profile.AppName);
-            Assert.Equal(GamerPictureIntent.Reference, profile.PictureIntent);
-            Assert.True(profile.GameplayLock);
-            Assert.Equal(0.0, profile.ShadowDetailStrength);
+            // A library entry is identity only; its look comes from the Media profile.
+            Assert.True(profile.SemanticallyEquals(GamerMediaProfile.ToLibraryEntry(profile)));
             Assert.False(profile.Enabled);
             Assert.Null(profile.ExecutablePath);
             Assert.Contains("disabled", gamerMode.EditorStatus, StringComparison.OrdinalIgnoreCase);

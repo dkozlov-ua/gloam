@@ -11,16 +11,24 @@ namespace Gloam.Core
         {
             // Schema 3 introduced Game Lab with a mandatory 10 mel-lx Night Ops ceiling.
             // Schema 4 makes that governor opt-in. Preserve any explicitly chosen value.
-            if (data.SchemaVersion > 3 || data.GamerProfiles == null) return;
-            foreach (GamerProfileRule profile in data.GamerProfiles)
+            if (data.SchemaVersion <= 3 && data.GamerProfiles != null)
             {
-                if (profile != null &&
-                    profile.NightPolicy == GamerNightPolicy.NightOps &&
-                    Math.Abs(profile.NightOpsMelanopicCeiling - 10.0) < 0.0001)
+                foreach (GamerProfileRule profile in data.GamerProfiles)
                 {
-                    profile.NightOpsMelanopicCeiling = 0.0;
+                    if (profile != null &&
+                        profile.NightPolicy == GamerNightPolicy.NightOps &&
+                        Math.Abs(profile.NightOpsMelanopicCeiling - 10.0) < 0.0001)
+                    {
+                        profile.NightOpsMelanopicCeiling = 0.0;
+                    }
                 }
             }
+
+            // Schema 5 replaces per-game settings with one Media profile. An older file cannot
+            // contain MediaProfile, so seed it from the legacy entries before normalization
+            // strips their rendering fields.
+            if (data.SchemaVersion <= 4)
+                data.MediaProfile = GamerMediaProfile.SeedFromLegacyProfiles(data.GamerProfiles);
         }
     }
 
@@ -38,7 +46,7 @@ namespace Gloam.Core
             foreach (var source in profiles)
             {
                 if (source == null) continue;
-                GamerProfileRule profile = source.Sanitized();
+                GamerProfileRule profile = GamerMediaProfile.ToLibraryEntry(source);
                 if (profile.AppName.Length == 0) continue;
                 if (!GamerExecutableSafety.IsSafeProfileTarget(profile.AppName, profile.DisplayName))
                 {
@@ -91,6 +99,9 @@ namespace Gloam.Core
             data.NightMode ??= new NightModeSettingsData();
             data.ExcludedApps = ExcludedApps(data.ExcludedApps);
             data.GamerProfiles = GamerProfiles(data.GamerProfiles);
+            data.MediaProfile = GamerMediaProfile.Normalize(data.MediaProfile);
+            if (!Enum.IsDefined(data.ProfileSelection))
+                data.ProfileSelection = DisplayProfileSelection.Automatic;
 
             foreach (var key in data.MonitorProfiles.Keys.ToList())
             {

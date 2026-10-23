@@ -104,7 +104,6 @@ namespace Gloam.ViewModels
         public ICommand ClearGamerProfilesCommand { get; }
         public ICommand ToggleShowAllGamerProfilesCommand { get; }
         public ICommand DismissGameDiscoveryCommand { get; }
-        public ICommand ApplyGamerLibraryPresetCommand { get; }
 
         public IReadOnlyList<NightModeAlgorithmOption> AvailableNightModeAlgorithms { get; } = NightModeAlgorithmOption.DefaultOptions;
 
@@ -165,13 +164,47 @@ namespace Gloam.ViewModels
             }
         }
 
-        public string GamerModeStateTitle => IsGamerModeEnabled ? "GAME MODE · ON" : "GAME MODE · PAUSED";
+        public IReadOnlyList<GamerChoice<DisplayProfileSelection>> AvailableProfileSelections { get; } =
+        [
+            new(DisplayProfileSelection.Automatic, "Automatic", "Media while a library game is active, Normal otherwise."),
+            new(DisplayProfileSelection.Normal, "Normal", "Always use each monitor's own settings."),
+            new(DisplayProfileSelection.Media, "Media", "Always use the Media profile.")
+        ];
 
-        public string GamerModeStateDetails => IsGamerModeEnabled
-            ? "Saved looks activate on focus, or while running when enabled in a profile."
-            : "All game profiles are bypassed. Your settings stay saved.";
+        /// <summary>
+        /// Automatic, or a sticky manual choice. Mirrors <c>Gloam.exe --profile-set</c>; either
+        /// surface may change it and the other follows through GamerSettingsChanged.
+        /// </summary>
+        public DisplayProfileSelection ProfileSelection
+        {
+            get => _gamerModeCoordinator?.ProfileSelection ?? SettingsManager.ProfileSelection;
+            set
+            {
+                if (value == ProfileSelection) return;
+                bool saved = _gamerModeCoordinator?.TrySetProfileSelection(value)
+                    ?? SettingsManager.TrySetProfileSelection(value);
+                if (!saved) GamerMode.ShowSaveFailed();
+                RaiseGamerModeStateProperties();
+            }
+        }
 
-        public string GamerModeToggleLabel => IsGamerModeEnabled ? "Pause all profiles" : "Resume game mode";
+        public string GamerModeStateTitle => ProfileSelection switch
+        {
+            DisplayProfileSelection.Normal => "NORMAL · MANUAL",
+            DisplayProfileSelection.Media => "MEDIA · MANUAL",
+            _ => IsGamerModeEnabled ? "AUTOMATIC" : "AUTOMATIC · PAUSED"
+        };
+
+        public string GamerModeStateDetails => ProfileSelection switch
+        {
+            DisplayProfileSelection.Normal => "Monitor settings stay on while games run.",
+            DisplayProfileSelection.Media => "The Media profile stays on until you choose Automatic.",
+            _ => IsGamerModeEnabled
+                ? "Media turns on with a library game and switches back to Normal after."
+                : "Games stay on Normal. Your library and Media settings stay saved."
+        };
+
+        public string GamerModeToggleLabel => IsGamerModeEnabled ? "Pause switching" : "Resume switching";
 
         public bool IsNightModeControlsExpanded
         {
@@ -221,6 +254,9 @@ namespace Gloam.ViewModels
             GamerMode = new GamerModeItem();
             foreach (var profile in settingsManager.GamerProfiles)
                 GamerMode.Profiles.Add(new GamerProfileEditorItem(profile));
+            GamerMode.SetMediaProfile(settingsManager.MediaProfile);
+            GamerMode.MediaProfileEdited += OnGamerProfileEdited;
+            GamerMode.Selection = ProfileSelection;
             GamerMode.SetSessions(gamerApplyService?.ActiveGamerSessions);
             GamerMode.Profiles.CollectionChanged += OnGamerProfilesCollectionChanged;
             foreach (GamerProfileEditorItem profile in GamerMode.Profiles)
@@ -249,10 +285,9 @@ namespace Gloam.ViewModels
             ClearGamerProfilesCommand = new RelayCommand(ClearGamerProfiles);
             ToggleShowAllGamerProfilesCommand = new RelayCommand(GamerMode.ToggleShowAllProfiles);
             DismissGameDiscoveryCommand = new RelayCommand(DismissGameDiscovery);
-            ApplyGamerLibraryPresetCommand = new RelayCommand(ApplyGamerLibraryPreset);
 
-            // Profile controls are live. A short debounce coalesces slider movement and a
-            // preset's multi-property update into one settings write + one foreground
+            // Media and library controls are live. A short debounce coalesces slider movement
+            // and a preset's multi-property update into one settings write + one foreground
             // re-evaluation instead of requiring a separate Save button.
             _gamerAutoSaveTimer = new DispatcherTimer
             {
@@ -949,12 +984,13 @@ namespace Gloam.ViewModels
                         profile.AppName.Equals(item.ExecutableName, StringComparison.OrdinalIgnoreCase)))
                         continue;
 
-                    GamerProfileRule rule = GamerPresetCatalog.Create(
-                        item.ExecutableName, GamerPresetCatalog.DefaultIntent);
-                    rule.ExecutablePath = item.ExecutablePath;
-                    rule.DisplayName = item.DisplayName;
-                    rule.HdrCapability = item.HdrCapability;
-                    var editor = new GamerProfileEditorItem(rule);
+                    var editor = new GamerProfileEditorItem(GamerMediaProfile.ToLibraryEntry(new GamerProfileRule
+                    {
+                        AppName = item.ExecutableName,
+                        ExecutablePath = item.ExecutablePath,
+                        DisplayName = item.DisplayName,
+                        HdrCapability = item.HdrCapability
+                    }));
                     GamerMode.Profiles.Add(editor);
                     firstAdded ??= editor;
                     added++;
@@ -973,10 +1009,10 @@ namespace Gloam.ViewModels
             GamerMode.DiscoveredGames.Clear();
             GamerMode.ResetLargeAddConfirmation();
             GamerMode.DiscoveryStatus = pausedLargeImport
-                ? $"Added {added} games. Game Mode is paused so you can review the library before anything activates."
+                ? $"Added {added} games. Switching is paused so you can review the library before anything activates."
                 : added == 1
-                    ? "Added 1 game with the Competitive look. You can change it below."
-                    : $"Added {added} games with the Competitive look. You can tune each one below.";
+                    ? "Added 1 game. It uses the Media profile."
+                    : $"Added {added} games. They use the Media profile.";
         }
 
         private void AddGamerProfile()
@@ -1020,9 +1056,8 @@ namespace Gloam.ViewModels
                 executablePath = null;
             }
 
-            GamerProfileRule rule = GamerPresetCatalog.Create(
-                app, GamerPresetCatalog.DefaultIntent);
-            rule.ExecutablePath = executablePath;
+            GamerProfileRule rule = GamerMediaProfile.ToLibraryEntry(
+                new GamerProfileRule { AppName = app, ExecutablePath = executablePath });
             if (executablePath != null)
                 rule.HdrCapability = GameDiscoveryService.DetectHdrCapability(executablePath).Capability;
             if (executablePath == null)
@@ -1056,53 +1091,13 @@ namespace Gloam.ViewModels
                 SaveGamerProfiles();
         }
 
-        private void ApplyGamerLibraryPreset()
-        {
-            GamerLibraryPresetOption? selection = GamerMode.SelectedLibraryPreset;
-            if (selection == null)
-            {
-                GamerMode.ShowMessage("Choose a library default first.");
-                return;
-            }
-
-            List<GamerProfileEditorItem> targets = GamerMode.Profiles
-                .Where(profile => !selection.HdrCapableOnly || profile.IsHdrCapable)
-                .ToList();
-            if (targets.Count == 0)
-            {
-                GamerMode.ShowMessage(
-                    "No HDR-capable games are known yet. Scan your libraries or mark HDR support in Advanced.");
-                return;
-            }
-
-            _gamerAutoSaveTimer.Stop();
-            _suppressGamerProfileSave = true;
-            try
-            {
-                foreach (GamerProfileEditorItem profile in targets)
-                    profile.PictureIntent = selection.Intent;
-            }
-            finally
-            {
-                _suppressGamerProfileSave = false;
-            }
-
-            if (SaveGamerProfiles())
-            {
-                string targetDescription = selection.HdrCapableOnly ? "HDR-capable games" : "games";
-                GamerMode.ShowMessage(
-                    $"Applied {selection.Label.Split('·')[0].Trim()} to {targets.Count} {targetDescription}.");
-                GamerMode.SelectedLibraryPreset = null;
-            }
-        }
-
         private void ClearGamerProfiles()
         {
             if (GamerMode.Profiles.Count == 0) return;
             if (!GamerMode.ToggleClearProfilesConfirmation())
             {
                 GamerMode.ShowMessage(
-                    $"This removes all {GamerMode.Profiles.Count} saved game profiles. Click the red confirmation again to continue.");
+                    $"This removes all {GamerMode.Profiles.Count} games from your library. Click the red confirmation again to continue.");
                 return;
             }
 
@@ -1172,10 +1167,12 @@ namespace Gloam.ViewModels
             _savingGamerProfiles = true;
             try
             {
-                bool saved = _gamerModeCoordinator?.TrySetProfiles(
-                        GamerMode.Profiles.Select(profile => profile.ToRule()))
-                    ?? SettingsManager.TrySetGamerProfiles(
-                        GamerMode.Profiles.Select(profile => profile.ToRule()));
+                List<GamerProfileRule> library = GamerMode.Profiles.Select(profile => profile.ToRule()).ToList();
+                GamerProfileRule media = GamerMode.MediaProfile.ToRule();
+                bool saved = (_gamerModeCoordinator?.TrySetProfiles(library)
+                        ?? SettingsManager.TrySetGamerProfiles(library)) &&
+                    (_gamerModeCoordinator?.TrySetMediaProfile(media)
+                        ?? SettingsManager.TrySetMediaProfile(media));
                 if (saved)
                     GamerMode.ShowSaved();
                 else
@@ -1200,6 +1197,13 @@ namespace Gloam.ViewModels
         {
             if (_isDisposed || _savingGamerProfiles) return;
             RaiseGamerModeStateProperties();
+            GamerProfileRule storedMedia = SettingsManager.MediaProfile;
+            if (!GamerMode.MediaProfile.ToRule().SemanticallyEquals(storedMedia))
+            {
+                _suppressGamerProfileSave = true;
+                try { GamerMode.SetMediaProfile(storedMedia); }
+                finally { _suppressGamerProfileSave = false; }
+            }
             List<GamerProfileRule> stored = SettingsManager.GamerProfiles;
             bool alreadyCurrent = stored.Count == GamerMode.Profiles.Count &&
                 stored.Zip(GamerMode.Profiles, (rule, editor) => editor.ToRule().SemanticallyEquals(rule)).All(equal => equal);
@@ -1220,7 +1224,9 @@ namespace Gloam.ViewModels
 
         private void RaiseGamerModeStateProperties()
         {
+            GamerMode.Selection = ProfileSelection;
             OnPropertyChanged(nameof(IsGamerModeEnabled));
+            OnPropertyChanged(nameof(ProfileSelection));
             OnPropertyChanged(nameof(GamerModeStateTitle));
             OnPropertyChanged(nameof(GamerModeStateDetails));
             OnPropertyChanged(nameof(GamerModeToggleLabel));
@@ -1276,6 +1282,7 @@ namespace Gloam.ViewModels
             SettingsManager.GamerSettingsChanged -= _gamerSettingsChangedHandler;
             SettingsManager.GamerProfileUsed -= _gamerProfileUsedHandler;
             GamerMode.Profiles.CollectionChanged -= OnGamerProfilesCollectionChanged;
+            GamerMode.MediaProfileEdited -= OnGamerProfileEdited;
             foreach (GamerProfileEditorItem profile in GamerMode.Profiles)
                 profile.PropertyChanged -= OnGamerProfileEdited;
             _nightModeService.BlendChanged -= _blendChangedHandler;

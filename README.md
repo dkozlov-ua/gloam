@@ -25,8 +25,9 @@ That is the whole fix. Everything below is optional.
 - Fixes the Windows SDR-in-HDR gamma mismatch with per-monitor Gamma 2.2, Gamma 2.4, or Windows Default modes.
 - Restores corrections automatically on startup, display changes, resume, and driver or game ramp resets.
 - Provides a perceptual night mode built on CAT16 chromatic adaptation, with fixed-time or sun-position schedules, a manual override, perceptually uniform mired-space fades, and an Ultra Night profile for maximum blue suppression.
-- Adds per-game Game Lab profiles with calibrated shadow visibility, Reference, Competitive Clarity, Cinematic HDR, and spectral Night Ops intents, multi-display window targeting, and a Gameplay Lock that holds schedule-derived output steady during play.
-- Offers an opt-in "Apply while the app is running, even without focus" setting under each profile's Advanced controls. Choose "One specific display" for apps such as MPV on a second monitor. Focused profiles take priority; otherwise the first matching running profile is used. Background app starts and exits are detected within about three seconds.
+- Adds Game Lab, which switches between two display profiles: **Normal** (each monitor's own settings) and **Media** (one shared set with calibrated shadow visibility, gamma and brightness overrides, multi-display window targeting, and a Gameplay Lock that holds schedule-derived output steady during play). Media turns on while a game from your library is active and switches back to Normal afterwards.
+- Lets scripts pick the profile: `Gloam.exe --profile-set normal`, `--profile-set media`, or `--profile-set auto`. A manual choice is sticky, survives restarts, and holds until `auto`.
+- Offers an opt-in "Stay on Media while a library game is running, even without focus" setting under the Media profile's Advanced controls. Choose "One specific display" for apps such as MPV on a second monitor. A focused game takes priority; otherwise the first running game in library order is used. Background app starts and exits are detected within about three seconds.
 - Checks the Windows-visible game signal chain at launch, including SDR/HDR expectation, DXGI color space, output bit depth, HDR headroom, and measured-calibration status. The dashboard keeps a live receipt of the active intent and every finding.
 - Auto-disables night mode for chosen applications while they are in the foreground, either on every monitor or only on the displays the application's window covers. Gamma correction and installed calibration profiles stay active.
 - Supports SDR and HDR colorimeter calibration through ArgyllCMS, including native Windows MHC2 profile installation and verification.
@@ -85,14 +86,26 @@ Ultra Night pushes further for maximum blue suppression, and can use a spectral 
 
 ## Game Lab
 
-![Game Lab: per-game picture intents and the live session receipt](docs/media/game-lab.png)
+![Game Lab: the game library, the Media profile, and the live session receipt](docs/media/game-lab.png)
+
+Game Lab has two profiles. **Normal** is each monitor's own settings. **Media** is one settings set shared by every game in your library.
 
 1. Left-click the tray icon to open the Dashboard; Game Lab is the section below Displays.
 2. The foreground game's executable is prefilled. Running-game choices refresh while the window is open.
-3. Add the game and choose a picture intent. Competitive Clarity lifts the deepest shadows while protecting midtones; Cinematic HDR preserves PQ and checks the Windows signal; Night Ops uses Gloam's spectral renderer.
-4. Edits save and apply automatically. Toggle **Profile enabled** to compare the profile with the calibrated baseline.
-5. Leave **Gameplay Lock** enabled to hold schedule-derived color temperature steady during the session.
-6. The active-session receipt lists the gamma, shadow treatment, night policy, target display, and signal findings that Gloam can verify.
+3. Add games to the library. The checkbox on each row decides whether that game switches to Media.
+4. Tune the Media profile on the right: dark-area visibility, brightness, and under Advanced the gamma, expected signal, target displays, and running policy. Edits save and apply automatically.
+5. The **Profile** selector in the status strip is Automatic by default. Choose Normal or Media to hold one profile regardless of what is running.
+6. The active-session receipt lists the gamma, shadow treatment, target display, and signal findings that Gloam can verify.
+
+### Command line
+
+```powershell
+Gloam.exe --profile-set media    # hold Media
+Gloam.exe --profile-set normal   # hold Normal
+Gloam.exe --profile-set auto     # switch automatically again
+```
+
+A manual choice is saved and survives restarts until `auto` is set. When Gloam is already running, the command is forwarded to that instance. Otherwise Gloam starts with that profile. Gloam is a windowed app, so a shell doesn't wait for it. To read the exit code, use `Start-Process Gloam.exe -ArgumentList '--profile-set','media' -Wait -PassThru`. Exit codes: `0` applied, `1` could not be saved, `2` invalid arguments, `3` the running instance did not answer.
 
 The implementation and measurement boundaries are documented in [Game Lab design](docs/gamer-mode-design.md).
 

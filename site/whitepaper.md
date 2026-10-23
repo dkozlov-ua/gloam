@@ -11,7 +11,7 @@ A correction is trustworthy only when its signal domain, physical limits, and me
 
 ## Abstract
 
-Gloam controls two related display-correction layers on Windows. Live controls such as gamma, dimming, night mode, and per-game visibility are synthesized as per-channel one-dimensional curves and loaded into the GPU's 256-entry hardware gamma ramp. A colorimeter calibration is installed separately as a Windows color profile containing an MHC2 transform: a 3×3 color matrix followed by three 1024-point tone curves. The live ramp can then compose with the measured panel correction without rebuilding it.
+Gloam controls two related display-correction layers on Windows. Live controls such as gamma, dimming, night mode, and Game Lab visibility are synthesized as per-channel one-dimensional curves and loaded into the GPU's 256-entry hardware gamma ramp. A colorimeter calibration is installed separately as a Windows color profile containing an MHC2 transform: a 3×3 color matrix followed by three 1024-point tone curves. The live ramp can then compose with the measured panel correction without rebuilding it.
 
 In HDR, Gloam measures absolute FP16 scRGB patches at known ST.2084 wire positions. The MHC2 tone curves invert the measured PQ response while accounting for the neutral luminance scale of the matrix that precedes them. Closed-loop refinement measures the installed matrix and tone curves as one system, fits a small color residual and a neutral luminance residual, installs both atomically, and retains the best jointly measured state.
 

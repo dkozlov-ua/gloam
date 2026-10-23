@@ -24,10 +24,13 @@ namespace Gloam.ViewModels
             new(StringComparer.OrdinalIgnoreCase);
 
         private string _newAppText = string.Empty;
-        private string _activeSessionSummary = "Waiting for a saved game";
-        private string _activeSessionDetails = "Switch to a game and its look will turn on automatically.";
+        private string _activeSessionSummary = string.Empty;
+        private string _activeSessionDetails = string.Empty;
         private bool _hasActiveSession;
-        private string _editorStatus = "Changes save automatically and update the active game.";
+        private IReadOnlyList<GamerSessionSnapshot> _sessions = Array.Empty<GamerSessionSnapshot>();
+        private DisplayProfileSelection _selection;
+        private GamerProfileEditorItem _mediaProfile = new(GamerMediaProfile.CreateDefault());
+        private string _editorStatus = "Changes save automatically and update the active profile.";
         private bool _isScanningForGames;
         private string _discoveryStatus =
             "Reads Steam, Epic, GOG, and Xbox library records. Gloam never opens or modifies a game.";
@@ -37,12 +40,42 @@ namespace Gloam.ViewModels
         private bool _largeAddArmed;
         private bool _clearProfilesArmed;
         private bool _showAllProfiles;
-        private GamerLibraryPresetOption? _selectedLibraryPreset;
 
         public GamerModeItem()
         {
             Profiles.CollectionChanged += OnProfilesChanged;
             DiscoveredGames.CollectionChanged += OnDiscoveredGamesChanged;
+            SetSessions(null);
+        }
+
+        /// <summary>The single settings set every library game uses.</summary>
+        public GamerProfileEditorItem MediaProfile
+        {
+            get => _mediaProfile;
+            private set => SetProperty(ref _mediaProfile, value);
+        }
+
+        public event PropertyChangedEventHandler? MediaProfileEdited;
+
+        public void SetMediaProfile(GamerProfileRule profile)
+        {
+            _mediaProfile.PropertyChanged -= OnMediaProfilePropertyChanged;
+            MediaProfile = new GamerProfileEditorItem(GamerMediaProfile.Normalize(profile));
+            _mediaProfile.PropertyChanged += OnMediaProfilePropertyChanged;
+        }
+
+        private void OnMediaProfilePropertyChanged(object? sender, PropertyChangedEventArgs e) =>
+            MediaProfileEdited?.Invoke(sender, e);
+
+        /// <summary>Selection the session receipt describes when no session is active.</summary>
+        public DisplayProfileSelection Selection
+        {
+            get => _selection;
+            set
+            {
+                if (SetProperty(ref _selection, value))
+                    SetSessions(_sessions);
+            }
         }
 
         public bool HasProfiles => Profiles.Count > 0;
@@ -57,13 +90,6 @@ namespace Gloam.ViewModels
         public string ShowAllProfilesLabel => _showAllProfiles
             ? "Recent only"
             : "View all";
-        public IReadOnlyList<GamerLibraryPresetOption> AvailableLibraryPresets { get; } =
-        [
-            new("Accurate · all games", GamerPictureIntent.Reference, false),
-            new("Competitive · all games", GamerPictureIntent.CompetitiveClarity, false),
-            new("Night Play · all games", GamerPictureIntent.NightOps, false),
-            new("HDR Cinema · detected HDR games", GamerPictureIntent.CinematicHdr, true)
-        ];
         public int SelectedDiscoveryCount => DiscoveredGames.Count(item => item.IsSelected && !item.AlreadyAdded);
         public string AddDiscoveredButtonLabel => _largeAddArmed
             ? $"Confirm adding {SelectedDiscoveryCount} games"
@@ -76,18 +102,6 @@ namespace Gloam.ViewModels
         public string ClearProfilesLabel => _clearProfilesArmed
             ? $"Confirm remove all {Profiles.Count}"
             : "Clear game library";
-
-        public GamerLibraryPresetOption? SelectedLibraryPreset
-        {
-            get => _selectedLibraryPreset;
-            set
-            {
-                if (SetProperty(ref _selectedLibraryPreset, value))
-                    OnPropertyChanged(nameof(HasSelectedLibraryPreset));
-            }
-        }
-
-        public bool HasSelectedLibraryPreset => SelectedLibraryPreset != null;
 
         public string ProfileSearchText
         {
@@ -214,19 +228,31 @@ namespace Gloam.ViewModels
         public void SetSessions(IReadOnlyList<GamerSessionSnapshot>? sessions)
         {
             sessions ??= Array.Empty<GamerSessionSnapshot>();
+            _sessions = sessions;
             HasActiveSession = sessions.Count > 0;
             if (sessions.Count == 0)
             {
-                ActiveSessionSummary = "Waiting for a saved game";
-                ActiveSessionDetails = "Switch to a game and its look will turn on automatically.";
+                (ActiveSessionSummary, ActiveSessionDetails) = Selection switch
+                {
+                    DisplayProfileSelection.Normal => (
+                        "Normal",
+                        "Chosen manually. Games don't switch profiles until you choose Automatic."),
+                    DisplayProfileSelection.Media => (
+                        "Media is selected",
+                        "No display matches the Media profile's target display."),
+                    _ => (
+                        "Normal",
+                        "Media turns on while a game from your library is active.")
+                };
                 return;
             }
 
             GamerSessionSnapshot first = sessions[0];
             string title = string.IsNullOrWhiteSpace(first.DisplayName) ? first.AppName : first.DisplayName;
+            string owner = Selection == DisplayProfileSelection.Media ? "Media · chosen manually" : $"Media · {title}";
             ActiveSessionSummary = sessions.Count == 1
-                ? $"{title} is active"
-                : $"{title} is active on {sessions.Count} displays";
+                ? owner
+                : $"{owner} · {sessions.Count} displays";
 
             var lines = new List<string>();
             foreach (GamerSessionSnapshot session in sessions)
@@ -454,14 +480,6 @@ namespace Gloam.ViewModels
         public override string ToString() => Label;
     }
 
-    public sealed record GamerLibraryPresetOption(
-        string Label,
-        GamerPictureIntent Intent,
-        bool HdrCapableOnly)
-    {
-        public override string ToString() => Label;
-    }
-
     public sealed class DiscoveredGameItem : ObservableObject
     {
         private bool _isSelected;
@@ -553,8 +571,8 @@ namespace Gloam.ViewModels
         public string? ExecutablePath => _profile.ExecutablePath;
         public bool HasExecutablePath => !string.IsNullOrWhiteSpace(_profile.ExecutablePath);
         public string ExecutableIdentityLabel => HasExecutablePath
-            ? "Verified executable"
-            : "Unverified path · profile disabled";
+            ? ExecutablePath!
+            : "Unverified path · game disabled until Gloam sees it run";
         public DateTime? LastUsedUtc => _profile.LastUsedUtc;
 
         public bool SetExecutablePath(string? executablePath)

@@ -519,7 +519,7 @@
               <span style="font-size: 1.25rem;">+</span>
             </summary>
             <div class="faq-body" style="padding-top: 1rem; opacity: 0.85; max-width: 800px;">
-              <p>Game Lab resolves a saved display intent when a configured game owns the foreground window. It can select gamma, apply a calibrated shadow lift, choose a night policy, hold schedule-derived color steady with Gameplay Lock, and report local signal facts such as HDR state, DXGI color space, bit depth, headroom, and calibration status.</p>
+              <p>Game Lab switches between two profiles: Normal, which is each monitor's own settings, and Media, one shared settings set that turns on while a game from your library owns the foreground window. Media can select gamma, apply a calibrated shadow lift, override brightness, hold schedule-derived color steady with Gameplay Lock, and report local signal facts such as HDR state, DXGI color space, bit depth, headroom, and calibration status. Scripts can hold either profile with <code>Gloam.exe --profile-set</code>.</p>
               <p>It does not inject into games, hook swap chains, install an overlay, or inspect game memory. The library scanner reads local Steam, Epic, GOG, and Xbox metadata and leaves every discovered title for you to add explicitly.</p>
             </div>
           </details>

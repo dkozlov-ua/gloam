@@ -41,6 +41,7 @@ namespace Gloam.ViewModels
         private List<MonitorInfo> _activeMonitors = new List<MonitorInfo>();
         private readonly object _activeMonitorsLock = new();
         private readonly GamerModeCoordinator _gamerModeCoordinator;
+        private readonly ProfileCommandServer _profileCommandServer;
         private readonly CalibrationLaunchCoordinator _calibrationLaunchCoordinator;
 
         private Dictionary<string, MonitorInfo> _savedConfigs = new Dictionary<string, MonitorInfo>();
@@ -144,6 +145,12 @@ namespace Gloam.ViewModels
 
             // Apply saved profiles on startup
             ApplyAll();
+
+            // `Gloam.exe --profile-set ...` from a second launch arrives here. The coordinator
+            // persists the choice and re-evaluates on its own settings-changed event.
+            _profileCommandServer = new ProfileCommandServer(
+                selection => _gamerModeCoordinator.TrySetProfileSelection(selection));
+            _profileCommandServer.Start();
 
             NotifyIfUpdated();
             CheckForUpdates();
@@ -544,7 +551,7 @@ namespace Gloam.ViewModels
             }
             _toastService?.Show(
                 "Game Mode",
-                enabled ? "Saved game profiles are active." : "All game profiles are paused.",
+                enabled ? "Library games switch to the Media profile again." : "Automatic switching to Media is paused.",
                 enabled ? ToastKind.Success : ToastKind.Info);
         }
 
@@ -711,6 +718,7 @@ namespace Gloam.ViewModels
             // Stops the night-mode and ramp-guard timers and unhooks the
             // foreground-window event hook.
             _updateCheckTimer.Stop();
+            _profileCommandServer.Dispose();
             CancelPendingForegroundPolicy();
             _settingsManager.GamerSettingsChanged -= OnGamerSettingsChanged;
             _appDetectionService.ForegroundAppChanged -= _gamerModeCoordinator.ObserveForeground;

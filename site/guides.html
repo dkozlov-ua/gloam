@@ -127,12 +127,12 @@
 
           <li data-step="04">
             <h3>Set up Game Lab</h3>
-            <p>Open the Dashboard and go to the Game Lab section. Add a running game, or scan local Steam, Epic, GOG, and Xbox library metadata and choose a title yourself. Scanning never enables a profile automatically.</p>
+            <p>Open the Dashboard and go to the Game Lab section. Add a running game, or scan local Steam, Epic, GOG, and Xbox library metadata and choose a title yourself. Scanning never adds a game automatically.</p>
             <ul style="padding-left: 1.5rem; margin-bottom: 1.5rem;">
-              <li><strong>Reference</strong> keeps measured correction and the monitor's normal gamma.</li>
-              <li><strong>Competitive Clarity</strong> lifts the deepest shadows while protecting the midtones.</li>
-              <li><strong>Cinematic HDR</strong> preserves the HDR path and requires an HDR signal.</li>
-              <li><strong>Night Ops</strong> uses the spectral night renderer for dark-room play.</li>
+              <li><strong>Normal</strong> is each monitor's own gamma, brightness, and night schedule.</li>
+              <li><strong>Media</strong> is one shared settings set: shadow visibility, brightness and gamma overrides, target displays, and Gameplay Lock.</li>
+              <li><strong>Automatic</strong> (the default) uses Media while a library game is active and Normal afterwards.</li>
+              <li>Scripts can hold a profile with <code>Gloam.exe --profile-set normal</code>, <code>media</code>, or <code>auto</code>. A manual choice persists until <code>auto</code>.</li>
             </ul>
             <p>Leave <strong>Gameplay Lock</strong> on if you want the resolved scheduled color temperature to stay fixed during the session. The active receipt shows which game, display, calibration, gamma, shadow lift, and night policy are actually in force.</p>
           </li>
@@ -234,8 +234,8 @@
         <h3>HDR refinement is unavailable</h3>
         <p>Open the live HDR report for the selected display and make sure its generated profile is both applied and enabled. Refinement requires the installed HDR tone LUTs, a connected meter, and the same display mode used by the report. Historical reports remain readable, but they cannot drive a new measurement loop.</p>
 
-        <h3>A Game Lab profile does not activate</h3>
-        <p>Confirm that the saved executable path still points to the game, that the profile is enabled, and that the game owns the foreground window. Re-scan the library if a launcher moved the installation. The active receipt is the authority: it shows the resolved game and every display currently covered by its window.</p>
+        <h3>Media does not activate for a game</h3>
+        <p>Check that the Profile selector is on Automatic rather than a manual Normal, that the saved executable path still points to the game, that the game's row is checked, and that the game owns the foreground window. Re-scan the library if a launcher moved the installation. The active receipt is the authority: it shows the resolved game and every display currently covered by its window.</p>
 
         <h3>Verification says profile activation is suspect</h3>
         <p>Keep Windows in the SDR or HDR mode used for calibration, enable the generated profile, and run Verify again. The warning means the measured change did not resemble the expected installed correction closely enough; it is safer to fix the profile association or compositor state than to interpret the score as a valid calibrated result.</p>

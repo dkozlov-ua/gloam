@@ -159,9 +159,14 @@ namespace Gloam.Tests
             {
                 GamerPresetCatalog.Create("replacement.exe", GamerPictureIntent.Reference)
             }));
+            GamerProfileRule media = sm.MediaProfile;
+            Assert.False(sm.TrySetMediaProfile(GamerPresetCatalog.Create(string.Empty, GamerPictureIntent.NightOps)));
+            Assert.False(sm.TrySetProfileSelection(DisplayProfileSelection.Media));
 
             Assert.False(sm.GamerModeEnabled);
             Assert.Equal("existing.exe", Assert.Single(sm.GamerProfiles).AppName);
+            Assert.True(media.SemanticallyEquals(sm.MediaProfile));
+            Assert.Equal(DisplayProfileSelection.Automatic, sm.ProfileSelection);
             Assert.Equal(newer, File.ReadAllText(SettingsPath));
         }
 

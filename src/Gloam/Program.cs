@@ -20,6 +20,12 @@ namespace Gloam
         // static field so the GC does not collect it (and release the mutex) while we run.
         private static Mutex? _singleInstanceMutex;
 
+        /// <summary>
+        /// A <c>--profile-set</c> choice given to the launch that becomes the running instance.
+        /// App.OnStartup persists it before the tray's coordinator reads the selection.
+        /// </summary>
+        internal static DisplayProfileSelection? StartupProfileSelection { get; private set; }
+
         [STAThread]
         public static int Main(string[] args)
         {
@@ -45,6 +51,13 @@ namespace Gloam
             if (IsLaunchSmoke(args))
                 return RunLaunchSmoke(args);
 
+            ProfileCommand profileCommand = ProfileCommandLine.Parse(args);
+            if (profileCommand.Error != null)
+            {
+                try { Log.Error("Command line: " + profileCommand.Error); } catch { }
+                return ProfileCommandLine.ExitInvalidArguments;
+            }
+
             // Single-instance guard. Two trays would fight over the GPU gamma ramp and clobber
             // settings.json, so a second instance (manual launch, "start with Windows" race, or
             // Velopack's update relaunch) must bow out. The "Local\" prefix scopes the mutex to
@@ -52,13 +65,33 @@ namespace Gloam
             _singleInstanceMutex = new Mutex(initiallyOwned: true, name: "Local\\Gloam-SingleInstance", out bool createdNew);
             if (!createdNew)
             {
+                if (profileCommand.Selection is { } selection)
+                    return ForwardProfileCommand(selection);
                 try { Log.Info("Another instance is already running; exiting."); } catch { }
                 return 0;
             }
 
+            StartupProfileSelection = profileCommand.Selection;
             var app = new App();
             app.InitializeComponent();
             return app.Run();
+        }
+
+        /// <summary>
+        /// Hands <c>--profile-set</c> to the running instance. The timeout covers a script
+        /// that launches Gloam and immediately sets a profile while the first instance is
+        /// still starting up.
+        /// </summary>
+        private static int ForwardProfileCommand(DisplayProfileSelection selection)
+        {
+            ProfileCommandSendResult result = ProfileCommandChannel.Send(selection, TimeSpan.FromSeconds(10));
+            try { Log.Info($"Forwarded --profile-set {ProfileCommandLine.ToArgument(selection)}: {result}."); } catch { }
+            return result switch
+            {
+                ProfileCommandSendResult.Applied => ProfileCommandLine.ExitApplied,
+                ProfileCommandSendResult.NotSaved => ProfileCommandLine.ExitNotSaved,
+                _ => ProfileCommandLine.ExitInstanceUnreachable
+            };
         }
 
         private static void ApplyFreshInstallStartupDefault()

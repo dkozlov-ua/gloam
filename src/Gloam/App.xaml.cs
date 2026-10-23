@@ -117,6 +117,12 @@ namespace Gloam
                 // correction agree from the first rendered frame.
                 _serviceProvider.GetRequiredService<AdvancedColorProfileMigrationService>().Run();
 
+                // A `--profile-set` launch that started the app persists its choice before the
+                // tray's coordinator is built, so the first evaluation already uses it.
+                if (Program.StartupProfileSelection is { } startupSelection &&
+                    !themeSettings.TrySetProfileSelection(startupSelection))
+                    Log.Error($"App.OnStartup: could not save profile selection {startupSelection}.");
+
                 Log.Info("App.OnStartup: Creating MainWindow...");
                 var mainWindow = new MainWindow();
                 Log.Info("App.OnStartup: MainWindow created.");

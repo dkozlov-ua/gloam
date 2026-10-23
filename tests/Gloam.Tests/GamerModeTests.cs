@@ -329,6 +329,7 @@ namespace Gloam.Tests
                 var source = GamerPresetCatalog.Create("game.exe", GamerPictureIntent.NightOps);
                 source.ExecutablePath = @"C:\Games\Arena\game.exe";
                 manager.SetGamerProfiles(new[] { source });
+                Assert.True(manager.TrySetMediaProfile(source));
                 manager.SetGamerModeEnabled(true);
                 var usedUtc = new DateTime(2026, 7, 17, 22, 30, 0, DateTimeKind.Utc);
                 string? recencyEventApp = null;
@@ -344,10 +345,19 @@ namespace Gloam.Tests
                 GamerProfileRule stored = Assert.Single(reloaded.GamerProfiles);
                 Assert.Equal("game.exe", stored.AppName);
                 Assert.Equal(Path.GetFullPath(@"C:\Games\Arena\game.exe"), stored.ExecutablePath);
-                Assert.Equal(GamerPictureIntent.NightOps, stored.PictureIntent);
                 Assert.Equal(usedUtc, stored.LastUsedUtc);
                 Assert.Equal("GAME.EXE", recencyEventApp, ignoreCase: true);
-                Assert.Equal(4, SettingsManager.CurrentSchemaVersion);
+                // The library keeps identity only; the look lives in the one Media profile,
+                // which in turn never names an executable.
+                Assert.True(stored.SemanticallyEquals(GamerMediaProfile.ToLibraryEntry(stored)));
+                Assert.NotEqual(GamerPictureIntent.NightOps, stored.PictureIntent);
+                GamerProfileRule media = reloaded.MediaProfile;
+                Assert.Equal(GamerPictureIntent.NightOps, media.PictureIntent);
+                Assert.Equal(string.Empty, media.AppName);
+                Assert.Null(media.ExecutablePath);
+                media.PictureIntent = GamerPictureIntent.Reference;
+                Assert.Equal(GamerPictureIntent.NightOps, reloaded.MediaProfile.PictureIntent);
+                Assert.Equal(5, SettingsManager.CurrentSchemaVersion);
             }
             finally
             {
@@ -374,7 +384,7 @@ namespace Gloam.Tests
                 var reloaded = new SettingsManager();
                 Assert.False(reloaded.GetUiSectionExpanded("Dashboard.GameLab", true));
                 Assert.True(reloaded.GetUiSectionExpanded("Dashboard.CircadianAdvanced", false));
-                Assert.Equal(4, SettingsManager.CurrentSchemaVersion);
+                Assert.Equal(5, SettingsManager.CurrentSchemaVersion);
             }
             finally
             {
@@ -402,7 +412,8 @@ namespace Gloam.Tests
                           "AppName": "arena.exe",
                           "PictureIntent": "NightOps",
                           "NightPolicy": "NightOps",
-                          "NightOpsMelanopicCeiling": 10.0
+                          "NightOpsMelanopicCeiling": 10.0,
+                          "LastUsedUtc": "2026-07-17T22:30:00Z"
                         }
                       ]
                     }
@@ -410,7 +421,10 @@ namespace Gloam.Tests
 
                 var manager = new SettingsManager();
 
-                Assert.Equal(0.0, Assert.Single(manager.GamerProfiles).NightOpsMelanopicCeiling);
+                // Schema 4 turns the ceiling off before schema 5 lifts the profile into Media.
+                GamerProfileRule media = manager.MediaProfile;
+                Assert.Equal(GamerNightPolicy.NightOps, media.NightPolicy);
+                Assert.Equal(0.0, media.NightOpsMelanopicCeiling);
             }
             finally
             {
@@ -425,13 +439,13 @@ namespace Gloam.Tests
             var normalized = SettingsManager.NormalizeGamerProfiles(new[]
             {
                 new GamerProfileRule { AppName = " " },
-                GamerPresetCatalog.Create("GAME.EXE", GamerPictureIntent.Reference),
-                GamerPresetCatalog.Create("game", GamerPictureIntent.NightOps)
+                new GamerProfileRule { AppName = "GAME.EXE", DisplayName = "First" },
+                new GamerProfileRule { AppName = "game", DisplayName = "Second" }
             });
 
             GamerProfileRule stored = Assert.Single(normalized);
             Assert.Equal("game.exe", stored.AppName);
-            Assert.Equal(GamerPictureIntent.NightOps, stored.PictureIntent);
+            Assert.Equal("Second", stored.DisplayName);
         }
 
         [Theory]

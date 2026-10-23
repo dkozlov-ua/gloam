@@ -121,9 +121,11 @@ namespace Gloam.Core
     }
 
     /// <summary>
-    /// Persistent per-executable gamer profile. It contains rendering intent and launch-time
-    /// policy only; measured panel correction stays in the monitor calibration profile and is
-    /// always composed first by the normal apply pipeline.
+    /// Game Lab rule: identity of a library game plus rendering intent and launch-time
+    /// policy. Persisted library entries keep only the identity half and the Media profile
+    /// keeps only the rendering half (see <see cref="GamerMediaProfile"/>). Measured panel
+    /// correction stays in the monitor calibration profile and is always composed first by
+    /// the normal apply pipeline.
     /// </summary>
     public sealed class GamerProfileRule
     {
@@ -383,6 +385,104 @@ namespace Gloam.Core
     }
 
     /// <summary>
+    /// Which display profile owns the output. Normal is each monitor's own settings with no
+    /// Game Lab layer. Media is the single Game Lab settings set. Automatic selects Media
+    /// while a library game is active and Normal otherwise.
+    /// </summary>
+    public enum DisplayProfileSelection
+    {
+        Automatic,
+        Normal,
+        Media
+    }
+
+    /// <summary>
+    /// Game Lab has one settings set, the Media profile, shared by every game in the library.
+    /// <see cref="GamerProfileRule"/> serves as both shapes: a library entry carries identity
+    /// only (executable, title, enable flag, HDR capability, recency) and the Media profile
+    /// carries rendering and policy only. A session composes the two with
+    /// <see cref="ForGame"/>, so the apply pipeline still sees one complete rule.
+    /// </summary>
+    public static class GamerMediaProfile
+    {
+        /// <summary>Session title shown while Media is selected manually.</summary>
+        public const string ManualSessionTitle = "Media profile";
+
+        public static GamerProfileRule CreateDefault() =>
+            Normalize(GamerPresetCatalog.Create(string.Empty, GamerPresetCatalog.DefaultIntent));
+
+        /// <summary>Strips identity so the stored Media profile cannot name or match a game.</summary>
+        public static GamerProfileRule Normalize(GamerProfileRule? media)
+        {
+            GamerProfileRule copy = (media ?? CreateDefault()).Sanitized();
+            copy.AppName = string.Empty;
+            copy.ExecutablePath = null;
+            copy.DisplayName = string.Empty;
+            copy.Enabled = true;
+            copy.HdrCapability = GamerHdrCapability.Unknown;
+            copy.LastUsedUtc = null;
+            return copy;
+        }
+
+        /// <summary>
+        /// Keeps only a library entry's identity. Rendering fields are reset to defaults so a
+        /// stale per-game value in settings.json cannot silently diverge from the Media profile.
+        /// </summary>
+        public static GamerProfileRule ToLibraryEntry(GamerProfileRule entry)
+        {
+            ArgumentNullException.ThrowIfNull(entry);
+            GamerProfileRule source = entry.Sanitized();
+            return new GamerProfileRule
+            {
+                AppName = source.AppName,
+                ExecutablePath = source.ExecutablePath,
+                DisplayName = source.DisplayName,
+                Enabled = source.Enabled,
+                HdrCapability = source.HdrCapability,
+                LastUsedUtc = source.LastUsedUtc
+            }.Sanitized();
+        }
+
+        /// <summary>The effective session rule: Media rendering under a library game's identity.</summary>
+        public static GamerProfileRule ForGame(GamerProfileRule media, GamerProfileRule entry)
+        {
+            ArgumentNullException.ThrowIfNull(media);
+            ArgumentNullException.ThrowIfNull(entry);
+            GamerProfileRule identity = entry.Sanitized();
+            GamerProfileRule effective = Normalize(media);
+            effective.AppName = identity.AppName;
+            effective.ExecutablePath = identity.ExecutablePath;
+            effective.DisplayName = identity.DisplayName;
+            effective.Enabled = identity.Enabled;
+            effective.HdrCapability = identity.HdrCapability;
+            effective.LastUsedUtc = identity.LastUsedUtc;
+            return effective.Sanitized();
+        }
+
+        /// <summary>The effective rule for a manual <see cref="DisplayProfileSelection.Media"/> selection.</summary>
+        public static GamerProfileRule ForManualSession(GamerProfileRule media)
+        {
+            GamerProfileRule effective = Normalize(media);
+            effective.DisplayName = ManualSessionTitle;
+            return effective;
+        }
+
+        /// <summary>
+        /// Schema 5 migration: seed the Media profile from the most recently used enabled
+        /// per-game profile. A library that never activated a game has no evidence of a
+        /// preferred look, so it starts from the default preset.
+        /// </summary>
+        internal static GamerProfileRule SeedFromLegacyProfiles(IEnumerable<GamerProfileRule?>? profiles)
+        {
+            GamerProfileRule? mostRecent = (profiles ?? Array.Empty<GamerProfileRule?>())
+                .Where(profile => profile != null && profile.Enabled && profile.LastUsedUtc.HasValue)
+                .OrderByDescending(profile => profile!.LastUsedUtc!.Value.ToUniversalTime())
+                .FirstOrDefault();
+            return mostRecent == null ? CreateDefault() : Normalize(mostRecent);
+        }
+    }
+
+    /// <summary>
     /// Black-anchored competitive visibility curve. The analytic toe is C1-continuous at
     /// the pivot, leaves the entire range above the pivot unchanged, and remains monotonic
     /// for every allowed setting. It is deliberately evaluated in linear light.
@@ -569,6 +669,10 @@ namespace Gloam.Core
         DateTime StartedUtc,
         IReadOnlyList<GamerSignalDiagnostic> Diagnostics);
 
-    /// <summary>One foreground-game assignment produced by window/display intersection.</summary>
-    public sealed record GamerSessionAssignment(MonitorInfo Monitor, GamerProfileRule Profile);
+    /// <summary>
+    /// One display assignment, produced by window/display intersection for a game or by a
+    /// manual Media selection. A manual assignment has no executable owner, so it is exempt
+    /// from the executable safety check; it is still limited to a single owner.
+    /// </summary>
+    public sealed record GamerSessionAssignment(MonitorInfo Monitor, GamerProfileRule Profile, bool Manual = false);
 }

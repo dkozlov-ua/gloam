@@ -140,17 +140,19 @@ namespace Gloam.Core
         {
             var eligible = (assignments ?? Array.Empty<GamerSessionAssignment>())
                 .Where(a => a?.Monitor != null && a.Profile != null && a.Profile.Enabled)
-                .Select(a => new GamerSessionAssignment(a.Monitor, a.Profile.Sanitized()))
-                .Where(a => GamerExecutableSafety.IsSafeProfileTarget(
+                .Select(a => a with { Profile = a.Profile.Sanitized() })
+                .Where(a => a.Manual || GamerExecutableSafety.IsSafeProfileTarget(
                     a.Profile.AppName, a.Profile.DisplayName))
                 .ToList();
 
             // A game may own several displays, but several games may never own the display
             // pipeline together. This is a hard Core invariant rather than a UI convention:
             // even a buggy caller, stale settings file, or racing foreground event is reduced
-            // to one executable before any output state is built.
-            string? owner = eligible.Select(a => a.Profile.AppName).FirstOrDefault();
-            int ownerCount = eligible.Select(a => a.Profile.AppName)
+            // to one executable before any output state is built. A manual Media selection
+            // is one more owner (keyed by an empty executable name), never a co-owner.
+            static string OwnerKey(GamerSessionAssignment a) => a.Manual ? string.Empty : a.Profile.AppName;
+            string? owner = eligible.Select(OwnerKey).FirstOrDefault();
+            int ownerCount = eligible.Select(OwnerKey)
                 .Distinct(StringComparer.OrdinalIgnoreCase).Count();
             if (ownerCount > 1)
                 Log.Info($"GammaApplyService: rejected {ownerCount - 1} competing gamer-session owner(s); '{owner}' retained.");
@@ -158,7 +160,7 @@ namespace Gloam.Core
             var incoming = owner == null
                 ? new List<GamerSessionAssignment>()
                 : eligible
-                    .Where(a => a.Profile.AppName.Equals(owner, StringComparison.OrdinalIgnoreCase))
+                    .Where(a => OwnerKey(a).Equals(owner, StringComparison.OrdinalIgnoreCase))
                     .GroupBy(a => a.Monitor.HMonitor)
                     .Select(g => g.Last())
                     .ToList();

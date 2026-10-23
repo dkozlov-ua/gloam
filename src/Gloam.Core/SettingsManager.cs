@@ -356,7 +356,7 @@ namespace Gloam.Core
         /// by a newer build: it is loaded best-effort but this manager refuses to Save so an
         /// old binary can never clobber a newer file.
         /// </summary>
-        public const int CurrentSchemaVersion = 4;
+        public const int CurrentSchemaVersion = 5;
         internal const long MaxSettingsFileBytes = 16L * 1024 * 1024;
 
         // Use LocalApplicationData to avoid Resilio Sync corruption
@@ -954,13 +954,16 @@ namespace Gloam.Core
             Save();
         }
 
-        /// <summary>Global gate for automatic per-game profile activation.</summary>
+        /// <summary>
+        /// Global gate for automatic Media activation. It does not affect a manual
+        /// <see cref="ProfileSelection"/>, which is an explicit choice of its own.
+        /// </summary>
         public bool GamerModeEnabled
         {
             get { lock (_dataLock) { return _data.GamerModeEnabled; } }
         }
 
-        /// <summary>A deep snapshot of persistent per-game profiles.</summary>
+        /// <summary>A deep snapshot of the game library (identity-only entries).</summary>
         public List<GamerProfileRule> GamerProfiles
         {
             get
@@ -1052,6 +1055,92 @@ namespace Gloam.Core
                 return false;
             }
 
+            NotifyGamerSettingsChanged();
+            return true;
+        }
+
+        /// <summary>A deep snapshot of the single Game Lab settings set.</summary>
+        public GamerProfileRule MediaProfile
+        {
+            get { lock (_dataLock) { return _data.MediaProfile.Clone(); } }
+        }
+
+        /// <summary>Replaces the Media profile transactionally; see <see cref="TrySetGamerProfiles"/>.</summary>
+        public bool TrySetMediaProfile(GamerProfileRule? profile)
+        {
+            lock (_gamerWriteLock) return TrySetMediaProfileCore(profile);
+        }
+
+        private bool TrySetMediaProfileCore(GamerProfileRule? profile)
+        {
+            GamerProfileRule incoming = GamerMediaProfile.Normalize(profile);
+            GamerProfileRule previous;
+            lock (_dataLock)
+            {
+                if (_data.MediaProfile.SemanticallyEquals(incoming)) return true;
+                previous = _data.MediaProfile.Clone();
+                _data.MediaProfile = incoming;
+                _dataVersion++;
+            }
+
+            if (!Save())
+            {
+                lock (_dataLock)
+                {
+                    if (_data.MediaProfile.SemanticallyEquals(incoming))
+                    {
+                        _data.MediaProfile = previous;
+                        _dataVersion++;
+                    }
+                }
+                return false;
+            }
+
+            NotifyGamerSettingsChanged();
+            return true;
+        }
+
+        /// <summary>
+        /// Automatic, or a manual Normal/Media choice. A manual choice is sticky: it survives
+        /// restarts and holds until Automatic is selected again.
+        /// </summary>
+        public DisplayProfileSelection ProfileSelection
+        {
+            get { lock (_dataLock) { return _data.ProfileSelection; } }
+        }
+
+        /// <summary>Changes the profile selection only when it can be durably written.</summary>
+        public bool TrySetProfileSelection(DisplayProfileSelection selection)
+        {
+            if (!Enum.IsDefined(selection)) return false;
+            lock (_gamerWriteLock) return TrySetProfileSelectionCore(selection);
+        }
+
+        private bool TrySetProfileSelectionCore(DisplayProfileSelection selection)
+        {
+            DisplayProfileSelection previous;
+            lock (_dataLock)
+            {
+                if (_data.ProfileSelection == selection) return true;
+                previous = _data.ProfileSelection;
+                _data.ProfileSelection = selection;
+                _dataVersion++;
+            }
+
+            if (!Save())
+            {
+                lock (_dataLock)
+                {
+                    if (_data.ProfileSelection == selection)
+                    {
+                        _data.ProfileSelection = previous;
+                        _dataVersion++;
+                    }
+                }
+                return false;
+            }
+
+            Log.Info($"SettingsManager: profile selection changed to {selection}.");
             NotifyGamerSettingsChanged();
             return true;
         }
@@ -1372,7 +1461,12 @@ namespace Gloam.Core
             public NightModeSettingsData NightMode { get; set; } = new NightModeSettingsData();
             public List<AppExclusionRule> ExcludedApps { get; set; } = new List<AppExclusionRule>();
             public bool GamerModeEnabled { get; set; }
+            /// <summary>Game library. Since schema 5 entries carry identity only.</summary>
             public List<GamerProfileRule> GamerProfiles { get; set; } = new List<GamerProfileRule>();
+            /// <summary>The single Game Lab settings set (schema 5+); identity fields are empty.</summary>
+            public GamerProfileRule MediaProfile { get; set; } = GamerMediaProfile.CreateDefault();
+            /// <summary>Automatic, or a sticky manual Normal/Media choice (schema 5+).</summary>
+            public DisplayProfileSelection ProfileSelection { get; set; }
             // Brutalist UI theme: true = dark, false = light, null = follow OS.
             public bool? DarkTheme { get; set; } = null;
             public bool StartupDefaultApplied { get; set; }

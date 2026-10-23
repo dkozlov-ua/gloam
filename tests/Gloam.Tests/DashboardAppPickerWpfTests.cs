@@ -107,18 +107,22 @@ namespace Gloam.Tests
                     GamerProfileEditorItem editor = Assert.Single(viewModel.GamerMode.Profiles);
                     GamerProfileRule stored = Assert.Single(settings.GamerProfiles);
                     Assert.Equal("arena.exe", stored.AppName);
-                    Assert.Equal(GamerPictureIntent.Reference, stored.PictureIntent);
+                    Assert.Equal(GamerPictureIntent.Reference, settings.MediaProfile.PictureIntent);
 
-                    editor.PictureIntent = GamerPictureIntent.NightOps;
+                    // Look edits go to the one Media profile, never to a library entry.
+                    GamerProfileEditorItem media = viewModel.GamerMode.MediaProfile;
+                    media.PictureIntent = GamerPictureIntent.NightOps;
                     Pump(TimeSpan.FromMilliseconds(350));
-                    stored = Assert.Single(settings.GamerProfiles);
-                    Assert.Equal(GamerPictureIntent.NightOps, stored.PictureIntent);
-                    Assert.Equal(GamerNightPolicy.NightOps, stored.NightPolicy);
-                    Assert.True(stored.ShadowDetailStrength > 0);
-                    Assert.Equal(0.0, stored.NightOpsMelanopicCeiling);
+                    GamerProfileRule storedMedia = settings.MediaProfile;
+                    Assert.Equal(GamerPictureIntent.NightOps, storedMedia.PictureIntent);
+                    Assert.Equal(GamerNightPolicy.NightOps, storedMedia.NightPolicy);
+                    Assert.True(storedMedia.ShadowDetailStrength > 0);
+                    Assert.Equal(0.0, storedMedia.NightOpsMelanopicCeiling);
+                    Assert.Equal(string.Empty, storedMedia.AppName);
                     editor.SetExecutablePath(Path.Combine(root, "games", "arena.exe"));
                     editor.Enabled = true;
                     Pump(TimeSpan.FromMilliseconds(350));
+                    Assert.True(Assert.Single(settings.GamerProfiles).Enabled);
                     viewModel.IsGameProfileAdvancedExpanded = true;
                     window.UpdateLayout();
                     var dashboardRunning = Assert.IsType<CheckBox>(
@@ -126,10 +130,21 @@ namespace Gloam.Tests
                     Assert.False(dashboardRunning.IsChecked);
                     dashboardRunning.IsChecked = true;
                     Pump(TimeSpan.FromMilliseconds(350));
-                    Assert.True(editor.ApplyWhileRunning);
-                    Assert.True(Assert.Single(settings.GamerProfiles).ApplyWhileRunning);
+                    Assert.True(media.ApplyWhileRunning);
+                    Assert.True(settings.MediaProfile.ApplyWhileRunning);
 
-                    Assert.Equal("Night Play", editor.AvailablePictureIntents[3].ToString());
+                    Assert.Equal("Night Play", media.AvailablePictureIntents[3].ToString());
+
+                    // The status-strip selector is the same sticky choice as --profile-set.
+                    var selectionBox = Assert.IsType<ComboBox>(window.FindName("ProfileSelectionBox"));
+                    Assert.Equal(DisplayProfileSelection.Automatic, selectionBox.SelectedValue);
+                    selectionBox.SelectedValue = DisplayProfileSelection.Media;
+                    Pump(TimeSpan.FromMilliseconds(80));
+                    Assert.Equal(DisplayProfileSelection.Media, settings.ProfileSelection);
+                    Assert.Equal("MEDIA · MANUAL", viewModel.GamerModeStateTitle);
+                    Assert.True(settings.TrySetProfileSelection(DisplayProfileSelection.Automatic));
+                    Pump(TimeSpan.FromMilliseconds(80));
+                    Assert.Equal(DisplayProfileSelection.Automatic, selectionBox.SelectedValue);
 
                     var largeLibrary = settings.GamerProfiles;
                     largeLibrary[0].HdrCapability = GamerHdrCapability.Detected;
@@ -180,24 +195,17 @@ namespace Gloam.Tests
                     Pump(TimeSpan.FromMilliseconds(120));
                     SaveScreenshotIfRequested(window, "dashboard-game-library.png");
 
-                    GamerLibraryPresetOption hdrDefault = Assert.Single(
-                        viewModel.GamerMode.AvailableLibraryPresets,
-                        option => option.HdrCapableOnly);
-                    viewModel.GamerMode.SelectedLibraryPreset = hdrDefault;
-                    viewModel.ApplyGamerLibraryPresetCommand.Execute(null);
-                    Pump(TimeSpan.FromMilliseconds(100));
-                    Assert.Equal(2, viewModel.GamerMode.Profiles.Count(profile =>
-                        profile.PictureIntent == GamerPictureIntent.CinematicHdr));
-                    Assert.All(viewModel.GamerMode.Profiles.Where(profile => !profile.IsHdrCapable),
-                        profile => Assert.NotEqual(GamerPictureIntent.CinematicHdr, profile.PictureIntent));
-
+                    // Selecting a game no longer swaps the editor: the Media profile stays put.
                     Assert.NotNull(viewModel.GamerMode.SelectedProfile);
-                    viewModel.GamerMode.SelectedProfile!.PictureIntent =
-                        GamerPictureIntent.CompetitiveClarity;
+                    viewModel.GamerMode.SelectedProfile = viewModel.GamerMode.FilteredProfiles.Last();
+                    Pump(TimeSpan.FromMilliseconds(60));
+                    var mediaEditor = Assert.IsType<Grid>(window.FindName("MediaProfileEditor"));
+                    Assert.Same(viewModel.GamerMode.MediaProfile, mediaEditor.DataContext);
+                    viewModel.GamerMode.MediaProfile.PictureIntent = GamerPictureIntent.CompetitiveClarity;
                     Pump(TimeSpan.FromMilliseconds(260));
                     SaveScreenshotIfRequested(window, "dashboard-game-library-detail.png");
 
-                    viewModel.GamerMode.SelectedProfile.PictureIntent = GamerPictureIntent.NightOps;
+                    viewModel.GamerMode.MediaProfile.PictureIntent = GamerPictureIntent.NightOps;
                     Expander advanced = Assert.Single(
                         FindVisualChildren<Expander>(workspace),
                         expander => Equals(expander.Header, "Advanced signal & display controls"));
@@ -205,12 +213,9 @@ namespace Gloam.Tests
                     Pump(TimeSpan.FromMilliseconds(260));
                     Assert.True(advanced.ActualHeight < workspace.ActualHeight);
 
-                    Rect profileBounds = BoundsIn(
-                        Assert.IsType<TextBox>(FindVisualChild<TextBox>(workspace, "AdvancedProfileNameBox")),
-                        workspace);
-                    Rect hdrSupportBounds = BoundsIn(
-                        Assert.IsType<ComboBox>(FindVisualChild<ComboBox>(workspace, "AdvancedHdrSupportBox")),
-                        workspace);
+                    // Per-game name and HDR-support fields are gone with per-game settings.
+                    Assert.Null(FindVisualChild<TextBox>(workspace, "AdvancedProfileNameBox"));
+                    Assert.Null(FindVisualChild<ComboBox>(workspace, "AdvancedHdrSupportBox"));
                     Rect expectedSignalBounds = BoundsIn(
                         Assert.IsType<ComboBox>(FindVisualChild<ComboBox>(workspace, "AdvancedExpectedSignalBox")),
                         workspace);
@@ -244,21 +249,20 @@ namespace Gloam.Tests
                     Assert.False(Assert.IsType<TextBox>(
                         FindVisualChild<TextBox>(workspace, "AdvancedMelanopicCeilingBox")).IsVisible);
 
-                    AssertAligned(profileBounds.Top, hdrSupportBounds.Top, expectedSignalBounds.Top, targetDisplaysBounds.Top);
+                    AssertAligned(expectedSignalBounds.Top, targetDisplaysBounds.Top);
                     AssertAligned(gammaBounds.Top, paperWhiteBounds.Top, peakNitsBounds.Top);
-                    AssertAligned(hdrSupportBounds.Left, gammaBounds.Left);
-                    AssertAligned(hdrSupportBounds.Right, gammaBounds.Right);
-                    AssertAligned(expectedSignalBounds.Left, paperWhiteBounds.Left);
-                    AssertAligned(expectedSignalBounds.Right, paperWhiteBounds.Right);
-                    AssertAligned(targetDisplaysBounds.Left, peakNitsBounds.Left);
+                    AssertAligned(expectedSignalBounds.Right, gammaBounds.Right);
+                    AssertAligned(targetDisplaysBounds.Left, paperWhiteBounds.Left);
                     AssertAligned(targetDisplaysBounds.Right, peakNitsBounds.Right);
+                    Assert.True(expectedSignalBounds.Right < targetDisplaysBounds.Left);
+                    Assert.True(gammaBounds.Right < paperWhiteBounds.Left);
                     Assert.True(paperWhiteBounds.Right < peakNitsBounds.Left);
                     var runningBox = Assert.IsType<CheckBox>(
                         FindVisualChild<CheckBox>(workspace, "ApplyWhileRunningBox"));
                     Assert.True(runningBox.IsChecked);
                     runningBox.IsChecked = false;
                     Pump(TimeSpan.FromMilliseconds(350));
-                    Assert.False(settings.GamerProfiles.Single(profile => profile.AppName == "arena.exe").ApplyWhileRunning);
+                    Assert.False(settings.MediaProfile.ApplyWhileRunning);
                     SaveScreenshotIfRequested(window, "dashboard-game-lab-advanced.png");
                     advanced.IsExpanded = false;
 

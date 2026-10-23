@@ -33,9 +33,13 @@ namespace Gloam.Tests
 
             WithSettings(settings =>
             {
+                // Running policy is a Media-profile setting; library entries never carry it.
                 edited.ExecutablePath = @"C:\Players\mpv.exe";
                 Assert.True(settings.TrySetGamerProfiles(new[] { edited }));
-                Assert.True(Assert.Single(new SettingsManager().GamerProfiles).ApplyWhileRunning);
+                Assert.True(settings.TrySetMediaProfile(edited));
+                var reloaded = new SettingsManager();
+                Assert.False(Assert.Single(reloaded.GamerProfiles).ApplyWhileRunning);
+                Assert.True(reloaded.MediaProfile.ApplyWhileRunning);
             });
         }
 
@@ -51,8 +55,8 @@ namespace Gloam.Tests
             {
                 var monitors = Monitors();
                 GamerProfileRule profile = Profile("mpv.exe");
-                profile.DisplayScope = scope;
                 Assert.True(settings.TrySetGamerProfiles(new[] { profile }));
+                Assert.True(settings.TrySetMediaProfile(Media(scope)));
                 Assert.True(settings.TrySetGamerModeEnabled(true));
                 using var night = new NightModeService(new NightModeSettings());
                 using var apply = new GammaApplyService(new DispwinRunner(), settings, night,
@@ -89,17 +93,15 @@ namespace Gloam.Tests
                 var monitors = Monitors();
                 var background = Profile("mpv.exe");
                 var focused = Profile("arena.exe");
-                focused.ApplyWhileRunning = false;
-                focused.MonitorDevicePath = "display-1";
                 Assert.True(settings.TrySetGamerProfiles(new[] { background, focused }));
+                Assert.True(settings.TrySetMediaProfile(Media(GamerDisplayScope.SpecificDisplay)));
                 Assert.True(settings.TrySetGamerModeEnabled(true));
                 using var night = new NightModeService(new NightModeSettings());
                 using var apply = new GammaApplyService(new DispwinRunner(), settings, night,
                     (_, _) => GamerCalibrationStatus.None);
                 IReadOnlyList<RunningAppObservation> running = new[]
                 {
-                    new RunningAppObservation("mpv.exe", @"D:\Other\mpv.exe", null),
-                    new RunningAppObservation("arena.exe", focused.ExecutablePath, null)
+                    new RunningAppObservation("mpv.exe", @"D:\Other\mpv.exe", null)
                 };
                 using var coordinator = new GamerModeCoordinator(settings, apply, () => monitors, () => running);
                 coordinator.ReevaluateLatest(immediate: true);
@@ -108,9 +110,16 @@ namespace Gloam.Tests
                 coordinator.ReevaluateLatest(immediate: true);
                 Assert.Equal("mpv.exe", Assert.Single(coordinator.ActiveSessions).AppName);
 
+                // Both games now run; the focused one owns Media over the background one.
+                running = new[]
+                {
+                    new RunningAppObservation("MPV.EXE", background.ExecutablePath, null),
+                    new RunningAppObservation("arena.exe", focused.ExecutablePath, null)
+                };
                 coordinator.ObserveForeground(focused.AppName, focused.ExecutablePath, monitors[0].MonitorBounds);
                 coordinator.ReevaluateLatest(immediate: true);
                 Assert.Equal("arena.exe", Assert.Single(coordinator.ActiveSessions).AppName);
+                running = new[] { new RunningAppObservation("MPV.EXE", background.ExecutablePath, null) };
                 coordinator.ObserveForeground("editor.exe", null, monitors[0].MonitorBounds);
                 coordinator.ReevaluateLatest(immediate: true);
                 Assert.Equal("mpv.exe", Assert.Single(coordinator.ActiveSessions).AppName);
@@ -143,6 +152,7 @@ namespace Gloam.Tests
                 var first = Profile("first.exe");
                 var second = Profile("second.exe");
                 settings.SetGamerProfiles(new[] { first, second });
+                Assert.True(settings.TrySetMediaProfile(Media(GamerDisplayScope.SpecificDisplay)));
                 settings.SetGamerModeEnabled(true);
                 using var night = new NightModeService(new NightModeSettings());
                 using var apply = new GammaApplyService(new DispwinRunner(), settings, night,
@@ -182,6 +192,7 @@ namespace Gloam.Tests
             {
                 var profile = Profile("mpv.exe");
                 settings.SetGamerProfiles(new[] { profile });
+                Assert.True(settings.TrySetMediaProfile(Media(GamerDisplayScope.SpecificDisplay)));
                 settings.SetGamerModeEnabled(true);
                 using var night = new NightModeService(new NightModeSettings());
                 using var apply = new GammaApplyService(new DispwinRunner(), settings, night,
@@ -210,6 +221,7 @@ namespace Gloam.Tests
             {
                 var profile = Profile("mpv.exe");
                 settings.SetGamerProfiles(new[] { profile });
+                Assert.True(settings.TrySetMediaProfile(Media(GamerDisplayScope.SpecificDisplay)));
                 settings.SetGamerModeEnabled(true);
                 using var night = new NightModeService(new NightModeSettings());
                 using var apply = new GammaApplyService(new DispwinRunner(), settings, night,
@@ -253,6 +265,14 @@ namespace Gloam.Tests
             ExecutablePath = @"C:\Apps\" + name,
             ApplyWhileRunning = true,
             DisplayScope = GamerDisplayScope.SpecificDisplay,
+            MonitorDevicePath = "display-2"
+        };
+
+        /// <summary>The shared Media settings that every library game runs with.</summary>
+        private static GamerProfileRule Media(GamerDisplayScope scope) => new()
+        {
+            ApplyWhileRunning = true,
+            DisplayScope = scope,
             MonitorDevicePath = "display-2"
         };
 

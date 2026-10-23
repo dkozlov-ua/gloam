@@ -1,19 +1,41 @@
 # Game Lab: calibrated display intents for games
 
-Game Lab applies a saved display intent when a configured executable owns the foreground window. The feature stays in Gloam's existing output path: Windows display discovery, measured per-monitor calibration, linear-light color adjustment, MHC2 or gamma-ramp application, and the latest-value coalescer. It does not inject a DLL, hook a swap chain, install an in-process overlay, or inspect game memory.
+Game Lab switches between two display profiles. **Normal** is each monitor's own settings, with no Game Lab layer. **Media** is a single settings set shared by every game in the library. Media applies when a library executable owns the foreground window. The feature stays in Gloam's existing output path: Windows display discovery, measured per-monitor calibration, linear-light color adjustment, MHC2 or gamma-ramp application, and the latest-value coalescer. It does not inject a DLL, hook a swap chain, install an in-process overlay, or inspect game memory.
 
 That boundary matters. Anti-cheat systems see an ordinary desktop color-management tool, and every claim in the dashboard comes from a Windows output fact or Gloam's measured display model.
+
+## Profiles and selection
+
+Library entries hold identity only: executable name, verified path, title, an enable flag, detected HDR capability, and last-used time. Rendering and policy live in the Media profile. A session composes the two, so the apply pipeline still receives one complete rule carrying the game's identity and Media's settings.
+
+The profile selection is one of:
+
+- **Automatic** (default). Media applies while an enabled library game is active, and Normal applies otherwise. The Dashboard's pause stops this switching.
+- **Normal**, chosen manually. No Game Lab session runs, even when a library game is focused.
+- **Media**, chosen manually. Media applies without a game. With no game window to intersect, window targeting widens to every display; a specific-display target still applies. The foreground app plays no part, so focus changes never restart the session or move its Gameplay Lock. The Dashboard's pause doesn't override this explicit choice.
+
+A manual choice is persisted and survives restarts until Automatic is selected again. The panic suspend still clears everything, and choosing a profile again re-arms output.
+
+The same choice is available from the Dashboard's Profile selector and from the command line:
+
+```text
+Gloam.exe --profile-set normal|media|auto
+```
+
+A second launch can't run alongside the tray because of the single-instance mutex. It forwards the command over a named pipe scoped to the login session and restricted to the current user, then exits with `0` (applied), `1` (could not be saved), `2` (invalid arguments) or `3` (the running instance did not answer within 10 seconds). When no instance is running, the launch becomes the tray and persists the choice before the first evaluation.
+
+Settings schema 5 introduced this model. Loading an older file seeds Media from the most recently used enabled per-game profile, or from the default preset when no game was ever activated, and then reduces every library entry to its identity.
 
 ## Session path
 
 1. The foreground hook reports the executable and its window bounds.
-2. The saved profile selects the affected displays: window intersection, every connected display, or one named display.
+2. The Media profile selects the affected displays: window intersection, every connected display, or one named display.
 3. Gloam captures a session record for each selected display and runs the signal checks.
-4. The profile contributes gamma, linear-light shadow visibility, and its night policy to the normal calibration settings.
+4. Media contributes gamma, linear-light shadow visibility, brightness, and its night policy to the normal calibration settings.
 5. The existing coalescer applies only the newest state. The ramp guard continues to restore corrections after a driver or game clears them.
-6. Leaving the game clears the session and restores the monitor's ordinary settings, unless the profile uses "Apply while the app is running, even without focus".
+6. Leaving the game clears the session and restores Normal, unless Media uses "Stay on Media while a library game is running, even without focus".
 
-The optional running policy checks enabled profiles every two seconds and verifies their executable paths. It retains the profile until the app exits, including while minimized when targeting one specific display or all displays. Window targeting uses the running process's main window bounds. A focused profile takes priority; otherwise the first matching running profile in saved order owns the session. Repeated checks preserve the captured Gameplay Lock state. Pause bypasses running profiles too.
+The optional running policy checks enabled library games every two seconds and verifies their executable paths. It keeps Media on until the game exits, including while minimized when targeting one specific display or all displays. Window targeting uses the running process's main window bounds. A focused game takes priority; otherwise the first running game in library order owns the session. Repeated checks preserve the captured Gameplay Lock state. Pause bypasses running games too.
 
 Game Lab is a section of the Dashboard. Field edits are coalesced for 180 ms, persisted, and sent through the foreground resolver. Running executable choices refresh every 2.5 seconds without resetting typed text or an open picker. Repeated focus events preserve the original session time and locked color temperature.
 
@@ -27,7 +49,7 @@ Game Lab is a section of the Dashboard. Field edits are coalesced for 180 ms, pe
 | Night Ops | Gamma 2.2 | 45% | Spectral Night Ops | Automatic |
 | Custom | User controlled | User controlled | User controlled | User controlled |
 
-Changing the intent reapplies its preset. Custom preserves the current fields. Gamma override can be disabled when the monitor's ordinary gamma setting should remain in force.
+Intents are presets for the Media profile. Changing the intent reapplies its preset. Custom preserves the current fields. Gamma override can be disabled when the monitor's ordinary gamma setting should remain in force.
 
 ## Shadow visibility curve
 
@@ -56,8 +78,8 @@ Gameplay Lock captures the resolved kelvin when a session starts. Timer and sunr
 
 The launch checks currently cover:
 
-- an HDR-required profile running while Windows HDR is inactive;
-- an SDR-required profile running through Windows HDR;
+- Media expecting HDR while Windows HDR is inactive;
+- Media expecting SDR while Windows HDR is active;
 - disagreement between Advanced Color state and the DXGI output color space;
 - an HDR output below 10 bits per component;
 - missing or implausibly small reported HDR headroom;
