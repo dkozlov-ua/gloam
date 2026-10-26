@@ -320,6 +320,61 @@ namespace Gloam.Tests
         }
 
         [Theory]
+        [InlineData(DisplayProfileSelection.Normal)]
+        [InlineData(DisplayProfileSelection.Media)]
+        [InlineData(DisplayProfileSelection.Automatic)]
+        public void CommandLine_TrayLaunchCarriesTheSelectionAndIsMarked(DisplayProfileSelection selection)
+        {
+            string[] args = ProfileCommandLine.TrayLaunchArguments(selection);
+
+            ProfileCommand command = ProfileCommandLine.Parse(args);
+            Assert.Null(command.Error);
+            Assert.Equal(selection, command.Selection);
+            Assert.True(ProfileCommandLine.IsTrayLaunch(args));
+        }
+
+        [Fact]
+        public void CommandLine_ScriptLaunchIsNotATrayLaunch()
+        {
+            // Otherwise a script's launch would become the tray and never exit.
+            Assert.False(ProfileCommandLine.IsTrayLaunch(new[] { "--profile-set", "media" }));
+            Assert.False(ProfileCommandLine.IsTrayLaunch(Array.Empty<string>()));
+            Assert.False(ProfileCommandLine.IsTrayLaunch(null));
+        }
+
+        [Fact]
+        public void Channel_StartingInstance_WaitsForThePipeToOpen()
+        {
+            string pipeName = "Gloam.ProfileCommand.Test." + Guid.NewGuid().ToString("N");
+            var received = new List<DisplayProfileSelection>();
+            using var server = new ProfileCommandServer(selection =>
+            {
+                lock (received) received.Add(selection);
+                return true;
+            }, pipeName);
+            // The tray opens its pipe only after startup has applied the saved profiles.
+            using var lateStart = new Timer(_ => server.Start(), null, 1500, Timeout.Infinite);
+
+            Assert.Equal(ProfileCommandSendResult.Applied,
+                ProfileCommandChannel.SendToStartingInstance(
+                    DisplayProfileSelection.Media, TimeSpan.FromSeconds(10), () => false, pipeName));
+            lock (received) Assert.Equal(DisplayProfileSelection.Media, Assert.Single(received));
+        }
+
+        [Fact]
+        public void Channel_StartingInstance_StopsWaitingSoonAfterTheStartedTrayExits()
+        {
+            string pipeName = "Gloam.ProfileCommand.Test." + Guid.NewGuid().ToString("N");
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+
+            Assert.Equal(ProfileCommandSendResult.Unavailable,
+                ProfileCommandChannel.SendToStartingInstance(
+                    DisplayProfileSelection.Media, TimeSpan.FromSeconds(30), () => clock.Elapsed > TimeSpan.FromSeconds(1), pipeName));
+            // 1 s until the "exit", one in-flight poll, then the 2 s grace: far from the timeout.
+            Assert.InRange(clock.Elapsed, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(8));
+        }
+
+        [Theory]
         [InlineData("profile-set media", "ok")]
         [InlineData("profile-set bogus", "error invalid request")]
         [InlineData("profile-set", "error invalid request")]

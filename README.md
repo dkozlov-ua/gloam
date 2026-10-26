@@ -99,7 +99,7 @@ Gloam.exe --profile-set normal   # hold Normal
 Gloam.exe --profile-set auto     # switch automatically again
 ```
 
-A manual choice is saved and survives restarts until `auto` is set. When Gloam is already running, the command is forwarded to that instance. Otherwise Gloam starts with that profile. Gloam is a windowed app, so a shell doesn't wait for it. To read the exit code, use `Start-Process Gloam.exe -ArgumentList '--profile-set','media' -Wait -PassThru`. Exit codes: `0` applied, `1` could not be saved, `2` invalid arguments, `3` the running instance did not answer.
+A manual choice is saved and survives restarts until `auto` is set. When Gloam is already running, the command is forwarded to that instance. Otherwise the command starts Gloam with that profile and exits once the new instance confirms it, within 20 seconds. Gloam is a windowed app, so a shell doesn't wait for it. To read the exit code, use `Start-Process Gloam.exe -ArgumentList '--profile-set','media' -Wait -PassThru`. Exit codes: `0` applied, `1` could not be saved, `2` invalid arguments, `3` the running instance did not answer (or a newly started one did not come up in time).
 
 The implementation and measurement boundaries are documented in [Game Lab design](docs/gamer-mode-design.md).
 

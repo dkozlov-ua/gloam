@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -21,7 +22,7 @@ namespace Gloam
         private static Mutex? _singleInstanceMutex;
 
         /// <summary>
-        /// A <c>--profile-set</c> choice given to the launch that becomes the running instance.
+        /// The <c>--profile-set</c> choice handed to a tray that a script's launch started.
         /// App.OnStartup persists it before the tray's coordinator reads the selection.
         /// </summary>
         internal static DisplayProfileSelection? StartupProfileSelection { get; private set; }
@@ -52,6 +53,12 @@ namespace Gloam
                 return 0;
             }
 
+            // A script's `--profile-set` launch waits for this process to exit, so it must not
+            // become the tray itself: it would never exit, and a caller with a timeout stalls.
+            // It starts a separate tray instead and reports what that tray confirms.
+            if (profileCommand.Selection is { } coldSelection && !ProfileCommandLine.IsTrayLaunch(args))
+                return StartTrayAndForward(coldSelection);
+
             StartupProfileSelection = profileCommand.Selection;
             var app = new App();
             app.InitializeComponent();
@@ -67,13 +74,64 @@ namespace Gloam
         {
             ProfileCommandSendResult result = ProfileCommandChannel.Send(selection, TimeSpan.FromSeconds(10));
             try { Log.Info($"Forwarded --profile-set {ProfileCommandLine.ToArgument(selection)}: {result}."); } catch { }
-            return result switch
-            {
-                ProfileCommandSendResult.Applied => ProfileCommandLine.ExitApplied,
-                ProfileCommandSendResult.NotSaved => ProfileCommandLine.ExitNotSaved,
-                _ => ProfileCommandLine.ExitInstanceUnreachable
-            };
+            return ToExitCode(result);
         }
+
+        /// <summary>
+        /// Starts the tray for a <c>--profile-set</c> launch that found no running instance,
+        /// then forwards the selection to it like a second launch would. The new tray opens its
+        /// pipe only after startup has applied every monitor's profile, so the wait is longer
+        /// than a running instance needs but stays under the 30 seconds a launcher's prepare
+        /// step may allow.
+        /// </summary>
+        private static int StartTrayAndForward(DisplayProfileSelection selection)
+        {
+            // The new tray has to take the single-instance mutex, so let go of it first. If
+            // another launch grabs it in between, the started tray forwards to that one.
+            _singleInstanceMutex?.ReleaseMutex();
+            _singleInstanceMutex?.Dispose();
+            _singleInstanceMutex = null;
+
+            using Process? tray = StartTray(selection);
+            if (tray == null) return ProfileCommandLine.ExitInstanceUnreachable;
+
+            ProfileCommandSendResult result = ProfileCommandChannel.SendToStartingInstance(
+                selection, TimeSpan.FromSeconds(20), () => tray.HasExited);
+            try { Log.Info($"Started the tray (pid {tray.Id}) for --profile-set {ProfileCommandLine.ToArgument(selection)}: {result}."); } catch { }
+            return ToExitCode(result);
+        }
+
+        private static Process? StartTray(DisplayProfileSelection selection)
+        {
+            try
+            {
+                string exePath = Environment.ProcessPath
+                    ?? throw new InvalidOperationException("The executable path is unknown.");
+                // Shell execute so the tray inherits none of this process's handles. A caller
+                // that reads our redirected output until it closes would otherwise wait on the
+                // tray, which keeps those pipe handles open for as long as it runs.
+                var psi = new ProcessStartInfo(exePath)
+                {
+                    UseShellExecute = true,
+                    WorkingDirectory = AppContext.BaseDirectory,
+                };
+                foreach (string arg in ProfileCommandLine.TrayLaunchArguments(selection))
+                    psi.ArgumentList.Add(arg);
+                return Process.Start(psi) ?? throw new InvalidOperationException("Process.Start returned null.");
+            }
+            catch (Exception ex)
+            {
+                try { Log.Error($"--profile-set {ProfileCommandLine.ToArgument(selection)}: could not start the tray: {ex.Message}"); } catch { }
+                return null;
+            }
+        }
+
+        private static int ToExitCode(ProfileCommandSendResult result) => result switch
+        {
+            ProfileCommandSendResult.Applied => ProfileCommandLine.ExitApplied,
+            ProfileCommandSendResult.NotSaved => ProfileCommandLine.ExitNotSaved,
+            _ => ProfileCommandLine.ExitInstanceUnreachable
+        };
 
         private static bool IsLaunchSmoke(string[] args)
             => args.Any(a => string.Equals(a, "--smoke", StringComparison.OrdinalIgnoreCase));

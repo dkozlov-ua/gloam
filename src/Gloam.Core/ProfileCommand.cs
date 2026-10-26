@@ -23,6 +23,13 @@ namespace Gloam.Core
     {
         public const string Option = "--profile-set";
 
+        /// <summary>
+        /// Internal: marks the tray that a <c>--profile-set</c> launch started on its behalf.
+        /// That tray takes the selection as its startup choice instead of starting yet another
+        /// tray. Not meant for scripts.
+        /// </summary>
+        public const string TrayOption = "--tray";
+
         /// <summary>Exit codes of a <c>--profile-set</c> launch, for scripts.</summary>
         public const int ExitApplied = 0;
         public const int ExitNotSaved = 1;
@@ -79,6 +86,25 @@ namespace Gloam.Core
                     return false;
             }
         }
+
+        public static bool IsTrayLaunch(IReadOnlyList<string>? args)
+        {
+            if (args == null) return false;
+            foreach (string arg in args)
+            {
+                if (string.Equals(arg, TrayOption, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Arguments for the tray a <c>--profile-set</c> launch starts when no instance is
+        /// running. The tray starts already holding the selection, so it never applies the
+        /// previous choice first.
+        /// </summary>
+        public static string[] TrayLaunchArguments(DisplayProfileSelection selection) =>
+            [Option, ToArgument(selection), TrayOption];
 
         /// <summary>The wire and command-line spelling of a selection.</summary>
         public static string ToArgument(DisplayProfileSelection selection) => selection switch
@@ -173,6 +199,39 @@ namespace Gloam.Core
                 }
             }
         }
+
+        /// <summary>
+        /// Sends a selection to an instance this process has just started. The new tray only
+        /// opens its pipe once startup has applied the saved profiles, so this keeps retrying
+        /// until <paramref name="timeout"/>, but stops early when <paramref name="starterExited"/>
+        /// reports that the started process is gone: a tray that crashed during startup must
+        /// not hold the caller for the whole timeout. After that exit it gives the pipe one
+        /// short last chance, which covers the started process losing the single-instance race
+        /// to another launch and forwarding to it instead.
+        /// </summary>
+        public static ProfileCommandSendResult SendToStartingInstance(
+            DisplayProfileSelection selection,
+            TimeSpan timeout,
+            Func<bool> starterExited,
+            string? pipeName = null)
+        {
+            ArgumentNullException.ThrowIfNull(starterExited);
+            var clock = Stopwatch.StartNew();
+            while (true)
+            {
+                TimeSpan remaining = timeout - clock.Elapsed;
+                if (remaining <= TimeSpan.Zero) return ProfileCommandSendResult.Unavailable;
+                bool exited = starterExited();
+                TimeSpan slice = exited ? StartedInstanceExitGrace : StartingInstancePollSlice;
+                ProfileCommandSendResult result = Send(selection, slice < remaining ? slice : remaining, pipeName);
+                if (result != ProfileCommandSendResult.Unavailable || exited) return result;
+                // Send returns at once on a pipe it refuses to trust; don't spin on that.
+                Thread.Sleep(50);
+            }
+        }
+
+        private static readonly TimeSpan StartingInstancePollSlice = TimeSpan.FromMilliseconds(500);
+        private static readonly TimeSpan StartedInstanceExitGrace = TimeSpan.FromSeconds(2);
 
         internal static async Task WriteLineAsync(Stream stream, string line, CancellationToken token)
         {

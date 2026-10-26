@@ -22,7 +22,7 @@ The same choice is available from the Dashboard's Profile selector and from the 
 Gloam.exe --profile-set normal|media|auto
 ```
 
-A second launch can't run alongside the tray because of the single-instance mutex. It forwards the command over a named pipe scoped to the login session and restricted to the current user, then exits with `0` (applied), `1` (could not be saved), `2` (invalid arguments) or `3` (the running instance did not answer within 10 seconds). When no instance is running, the launch becomes the tray and persists the choice before the first evaluation.
+A second launch can't run alongside the tray because of the single-instance mutex. It forwards the command over a named pipe scoped to the login session and restricted to the current user, then exits with `0` (applied), `1` (could not be saved), `2` (invalid arguments) or `3` (the running instance did not answer within 10 seconds). When no instance is running, the launch doesn't become the tray, because a script waiting on it would then wait forever. It releases the mutex, starts a separate tray with the internal `--tray` marker, and that tray persists the choice before the first evaluation. The launch then forwards the selection over the pipe like a second launch and exits with the same codes. It waits up to 20 seconds for the new tray's pipe and gives up about 2 seconds after that tray exits.
 
 Settings schema 5 introduced this model. Loading an older file seeds Media from the most recently used enabled per-game profile, or from the default preset when no game was ever activated, and then reduces every library entry to its identity.
 
