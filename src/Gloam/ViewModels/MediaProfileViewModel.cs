@@ -87,22 +87,6 @@ namespace Gloam.ViewModels
 
         public string BrightnessText => $"{Brightness:F0}%";
 
-        private double _shadowDetail;
-        /// <summary>Dark-area visibility, 0..100 (%), stored as a 0..1 strength.</summary>
-        public double ShadowDetail
-        {
-            get => _shadowDetail;
-            set
-            {
-                value = Math.Round(Math.Clamp(double.IsFinite(value) ? value : 0.0, 0.0, 100.0));
-                if (!SetProperty(ref _shadowDetail, value)) return;
-                OnPropertyChanged(nameof(ShadowDetailText));
-                Changed(p => p.ShadowDetailStrength = value / 100.0);
-            }
-        }
-
-        public string ShadowDetailText => ShadowDetail <= 0 ? "Off" : $"{ShadowDetail:F0}%";
-
         public ObservableCollection<DisplayChoice> DisplayChoices { get; } = [new DisplayChoice(AllDisplaysLabel, null)];
 
         private DisplayChoice? _appliesTo;
@@ -128,7 +112,6 @@ namespace Gloam.ViewModels
                 var parts = new List<string>();
                 if (OverrideGamma) parts.Add($"gamma {(Gamma == GammaMode.Gamma24 ? "2.4" : "2.2")}");
                 if (OverrideBrightness) parts.Add($"brightness {Brightness:F0}%");
-                if (ShadowDetail > 0) parts.Add($"dark areas +{ShadowDetail:F0}%");
                 if (parts.Count == 0) return "Same as Normal";
                 string text = string.Join(", ", parts);
                 return char.ToUpperInvariant(text[0]) + text[1..];
@@ -171,7 +154,6 @@ namespace Gloam.ViewModels
                 Gamma = profile.GammaMode == GammaMode.Gamma24 ? GammaMode.Gamma24 : GammaMode.Gamma22;
                 OverrideBrightness = profile.OverrideBrightness;
                 Brightness = profile.Brightness;
-                ShadowDetail = profile.ShadowDetailStrength * 100.0;
 
                 DisplayChoice choice;
                 if (profile.DisplayScope == MediaDisplayScope.SpecificDisplay)

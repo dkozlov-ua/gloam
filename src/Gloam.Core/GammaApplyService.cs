@@ -7,7 +7,8 @@ namespace Gloam.Core
     /// <summary>
     /// Owns the policy for applying gamma to monitors: resolves what each monitor should
     /// render (its saved settings, with the Media profile layered on while Media is
-    /// selected), coalesces rapid requests per monitor, and keeps the written ramps in place.
+    /// selected; SDR, like Normal, is the saved settings), coalesces rapid requests per
+    /// monitor, and keeps the written ramps in place.
     /// Has no UI dependencies; the tray reacts to settings events by calling
     /// <see cref="ApplyAll"/>.
     /// </summary>
@@ -92,6 +93,13 @@ namespace Gloam.Core
         /// and neutral adjustments for a monitor with none), with the Media profile layered on
         /// while Media is selected and covers this monitor.
         /// </summary>
+        /// <remarks>
+        /// Shadow-preserving dimming and the Media profile's dark-area visibility are off for
+        /// every display, whatever settings.json holds: the panel no longer offers them, so a
+        /// value saved by an older version must not keep acting where nobody can change it.
+        /// Every display dims with a straight multiply and gets no dark-area toe. The saved
+        /// values are left in settings.json, untouched.
+        /// </remarks>
         internal static (GammaMode Mode, DisplayAdjustments Adjustments) Resolve(
             MonitorProfileData? profile,
             GammaMode fallbackMode,
@@ -103,8 +111,11 @@ namespace Gloam.Core
             DisplayAdjustments adjustments = profile?.ToAdjustments() ?? DisplayAdjustments.Default;
 
             if (selection == DisplayProfileSelection.Media && media.AppliesTo(monitorDevicePath))
-                return media.ComposeWith(mode, adjustments);
+                (mode, adjustments) = media.ComposeWith(mode, adjustments);
 
+            adjustments = adjustments.Clone();
+            adjustments.UseLinearBrightness = true;
+            adjustments.ShadowDetailStrength = 0.0;
             return (mode, adjustments);
         }
 

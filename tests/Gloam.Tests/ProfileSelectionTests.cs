@@ -5,8 +5,9 @@ using Xunit;
 namespace Gloam.Tests
 {
     /// <summary>
-    /// Two display profiles: Normal (each monitor's settings) and Media (one set of overrides
-    /// layered on them). The choice is sticky: it survives restarts until another is made.
+    /// Three display profiles: Normal (each monitor's settings), Media (one set of overrides
+    /// layered on them) and SDR (each monitor's settings with HDR off). The choice is sticky:
+    /// it survives restarts until another is made.
     /// </summary>
     public sealed class ProfileSelectionTests
     {
@@ -140,8 +141,29 @@ namespace Gloam.Tests
 
             Assert.Equal(GammaMode.Gamma24, mode);
             Assert.Equal(100, adjustments.Brightness);
-            Assert.Equal(0.5, adjustments.ShadowDetailStrength);
+            // Dark-area visibility is off whatever the Media profile saved.
+            Assert.Equal(0, adjustments.ShadowDetailStrength);
             Assert.True(adjustments.UseLinearBrightness);
+        }
+
+        [Theory]
+        [InlineData(DisplayProfileSelection.Normal)]
+        [InlineData(DisplayProfileSelection.Media)]
+        [InlineData(DisplayProfileSelection.Sdr)]
+        public void Resolve_IgnoresSavedShadowPreservingDimmingAndDarkAreaVisibility(DisplayProfileSelection selection)
+        {
+            // What an older version saved: shadow-preserving dimming on, dark areas lifted.
+            var profile = new MonitorProfileData { GammaMode = GammaMode.Gamma22, Brightness = 60, UseLinearBrightness = false };
+            var media = new MediaProfile { ShadowDetailStrength = 0.6 };
+
+            var (_, adjustments) = GammaApplyService.Resolve(profile, GammaMode.Gamma22, "display-1", selection, media);
+
+            Assert.True(adjustments.UseLinearBrightness);
+            Assert.Equal(0, adjustments.ShadowDetailStrength);
+            Assert.Equal(60, adjustments.Brightness);
+            // Nothing is rewritten: the saved values stay as they were.
+            Assert.False(profile.UseLinearBrightness);
+            Assert.Equal(0.6, media.ShadowDetailStrength);
         }
 
         [Fact]
@@ -162,6 +184,29 @@ namespace Gloam.Tests
         }
 
         [Fact]
+        public void Resolve_SdrUsesEachMonitorsOwnSettingsAndIgnoresMedia()
+        {
+            var profile = new MonitorProfileData { GammaMode = GammaMode.Gamma24, Brightness = 75 };
+            var media = new MediaProfile { OverrideGamma = true, GammaMode = GammaMode.Gamma22, OverrideBrightness = true, Brightness = 100 };
+
+            var (mode, adjustments) = GammaApplyService.Resolve(
+                profile, GammaMode.Gamma22, "display-1", DisplayProfileSelection.Sdr, media);
+
+            Assert.Equal(GammaMode.Gamma24, mode);
+            Assert.Equal(75, adjustments.Brightness);
+        }
+
+        [Fact]
+        public void Selection_Sdr_IsSavedByNameAndSurvivesRestart()
+        {
+            using var data = new TempDataScope();
+            Assert.True(new SettingsManager().TrySetProfileSelection(DisplayProfileSelection.Sdr));
+
+            Assert.Contains("\"ProfileSelection\": \"Sdr\"", File.ReadAllText(data.SettingsFile));
+            Assert.Equal(DisplayProfileSelection.Sdr, new SettingsManager().ProfileSelection);
+        }
+
+        [Fact]
         public void Resolve_MonitorWithoutSavedSettings_UsesItsCurrentGammaAndNeutralAdjustments()
         {
             var (mode, adjustments) = GammaApplyService.Resolve(
@@ -174,6 +219,7 @@ namespace Gloam.Tests
         [Theory]
         [InlineData("--profile-set normal", DisplayProfileSelection.Normal)]
         [InlineData("--PROFILE-SET Media", DisplayProfileSelection.Media)]
+        [InlineData("--profile-set=SDR", DisplayProfileSelection.Sdr)]
         // Automatic switching went with the game library; scripts that end a session with
         // "auto" mean "back to normal".
         [InlineData("--profile-set=auto", DisplayProfileSelection.Normal)]
@@ -249,6 +295,7 @@ namespace Gloam.Tests
         [Theory]
         [InlineData(DisplayProfileSelection.Normal)]
         [InlineData(DisplayProfileSelection.Media)]
+        [InlineData(DisplayProfileSelection.Sdr)]
         public void CommandLine_TrayLaunchCarriesTheSelectionAndIsMarked(DisplayProfileSelection selection)
         {
             string[] args = ProfileCommandLine.TrayLaunchArguments(selection);

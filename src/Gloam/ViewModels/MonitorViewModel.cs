@@ -5,8 +5,8 @@ using Gloam.Core;
 namespace Gloam.ViewModels
 {
     /// <summary>
-    /// One monitor's own settings in the window: gamma, brightness and how dimming treats
-    /// shadows. Every change is saved at once; the saved change is what re-applies the ramp
+    /// One monitor's own settings in the window: gamma and brightness. Every change is saved
+    /// at once; the saved change is what re-applies the ramp
     /// (see <see cref="MainViewModel"/>).
     /// </summary>
     public sealed class MonitorViewModel : ObservableObject
@@ -82,18 +82,6 @@ namespace Gloam.ViewModels
 
         public string BrightnessText => $"{Brightness:F0}%";
 
-        private bool _preserveShadows = true;
-        /// <summary>Dim with the shadow-preserving curve rather than a straight multiply.</summary>
-        public bool PreserveShadows
-        {
-            get => _preserveShadows;
-            set
-            {
-                if (!SetProperty(ref _preserveShadows, value)) return;
-                Save(profile => profile.UseLinearBrightness = !value);
-            }
-        }
-
         private string? _mediaNote;
         /// <summary>What the active Media profile overrides on this display; null when nothing.</summary>
         public string? MediaNote
@@ -118,7 +106,6 @@ namespace Gloam.ViewModels
             {
                 Gamma = profile.GammaMode;
                 Brightness = profile.Brightness;
-                PreserveShadows = !profile.UseLinearBrightness;
             }
             finally
             {

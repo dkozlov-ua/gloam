@@ -108,7 +108,8 @@ namespace Gloam.Tests
 
             apply.ApplyAll(new[] { Hdr, Sdr });
 
-            AssertRamp(ramp, Hdr, GammaMode.Gamma24, new DisplayAdjustments { Brightness = 100, ShadowDetailStrength = 0.4 });
+            // The saved dark-area visibility is ignored (GammaApplyService.Resolve).
+            AssertRamp(ramp, Hdr, GammaMode.Gamma24, new DisplayAdjustments { Brightness = 100 });
             AssertRamp(ramp, Sdr, GammaMode.Gamma24, new DisplayAdjustments { Brightness = 75 });
 
             // Back to Normal: the Media display returns to its own settings.
@@ -138,7 +139,7 @@ namespace Gloam.Tests
 
         private static void AssertRamp(FakeGammaRamp ramp, MonitorInfo monitor, GammaMode mode, DisplayAdjustments adjustments)
         {
-            ushort[] expected = FakeGammaRamp.Expected(mode, monitor.SdrWhiteLevel, adjustments, monitor.IsHdrActive);
+            ushort[] expected = FakeGammaRamp.Expected(mode, monitor.SdrWhiteLevel, FakeGammaRamp.AsShown(adjustments), monitor.IsHdrActive);
             Eventually.True(() => ramp.Ramp(monitor.DeviceName) is { } actual && actual.SequenceEqual(expected),
                 $"{monitor.DeviceName} to show {mode} at {adjustments.Brightness}% (shadow {adjustments.ShadowDetailStrength})");
         }

@@ -15,7 +15,9 @@ namespace Gloam.Interop
         private const uint QDC_ONLY_ACTIVE_PATHS = 0x2;
         private const int DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME = 1;
         private const int DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO = 9;
+        private const int DISPLAYCONFIG_DEVICE_INFO_SET_ADVANCED_COLOR_STATE = 10;
         private const int DISPLAYCONFIG_DEVICE_INFO_GET_SDR_WHITE_LEVEL = 11;
+        private const int DISPLAYCONFIG_DEVICE_INFO_SET_HDR_STATE = 16;
 
         [StructLayout(LayoutKind.Sequential)]
         private struct DISPLAYCONFIG_PATH_SOURCE_INFO
@@ -93,6 +95,15 @@ namespace Gloam.Interop
             public uint SDRWhiteLevel; // in units of 1/1000 of 80 nits: nits = value / 1000 * 80
         }
 
+        // DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE and DISPLAYCONFIG_SET_HDR_STATE share this
+        // layout: the header, then a bitfield whose bit 0 is enableAdvancedColor / enableHdr.
+        [StructLayout(LayoutKind.Sequential)]
+        private struct DISPLAYCONFIG_SET_STATE
+        {
+            public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
+            public uint value;
+        }
+
         [DllImport("user32.dll")]
         private static extern int GetDisplayConfigBufferSizes(uint flags, out uint numPathArrayElements, out uint numModeInfoArrayElements);
 
@@ -110,6 +121,9 @@ namespace Gloam.Interop
 
         [DllImport("user32.dll")]
         private static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO requestPacket);
+
+        [DllImport("user32.dll")]
+        private static extern int DisplayConfigSetDeviceInfo(ref DISPLAYCONFIG_SET_STATE setPacket);
 
         /// <summary>
         /// Finds the active DisplayConfig path whose GDI source name matches
@@ -191,6 +205,38 @@ namespace Gloam.Interop
             advancedColorEnabled = (req.value & 0x2) != 0;
             advancedColorForceDisabled = (req.value & 0x8) != 0;
             return true;
+        }
+
+        /// <summary>
+        /// Turns HDR ("Use HDR" in Settings > Display) on or off, as the Settings app does.
+        /// Windows 11 24H2 added SET_HDR_STATE, which switches HDR alone (there
+        /// SET_ADVANCED_COLOR_STATE also covers SDR Auto Color Management), so it is tried
+        /// first; older Windows rejects that type and gets SET_ADVANCED_COLOR_STATE. Both are
+        /// set per TARGET. The call returns once the mode has changed; the display-change
+        /// messages follow. Returns the Win32 error, 0 on success.
+        /// </summary>
+        public static int SetHdrState(string gdiDeviceName, bool enable)
+        {
+            if (!TryGetPathForGdiName(gdiDeviceName, out var adapterId, out _, out uint targetId))
+                return 1168; // ERROR_NOT_FOUND
+            int error = 0;
+            foreach (int type in new[] { DISPLAYCONFIG_DEVICE_INFO_SET_HDR_STATE, DISPLAYCONFIG_DEVICE_INFO_SET_ADVANCED_COLOR_STATE })
+            {
+                var packet = new DISPLAYCONFIG_SET_STATE
+                {
+                    header = new DISPLAYCONFIG_DEVICE_INFO_HEADER
+                    {
+                        type = type,
+                        size = Marshal.SizeOf<DISPLAYCONFIG_SET_STATE>(),
+                        adapterId = adapterId,
+                        id = targetId,
+                    },
+                    value = enable ? 1u : 0u,
+                };
+                error = DisplayConfigSetDeviceInfo(ref packet);
+                if (error == 0) return 0;
+            }
+            return error;
         }
 
         /// <summary>

@@ -15,12 +15,15 @@ namespace Gloam.ViewModels
     /// <summary>
     /// The window's view model and the app's coordinator: it owns the monitor list, applies
     /// what the settings say whenever they change (from the window, the tray menu or
-    /// <c>--profile-set</c>), and re-applies after display changes and resume.
+    /// <c>--profile-set</c>), and re-applies after display changes and resume. At startup
+    /// and on every profile switch it also puts the displays in the profile's HDR mode.
     /// </summary>
     /// <remarks>
     /// Settings events can arrive on any thread (the <c>--profile-set</c> pipe server raises
     /// them on its own), so every reaction is posted to the UI thread through the
-    /// <c>post</c> callback. Tests pass one that runs the action at once.
+    /// <c>post</c> callback. Tests pass one that runs the action at once. Switching HDR takes
+    /// a mode change of a second or two, so it runs through <c>background</c>, off the UI
+    /// thread; tests run it at once too.
     /// </remarks>
     public sealed class MainViewModel : ObservableObject, IDisposable
     {
@@ -30,6 +33,8 @@ namespace Gloam.ViewModels
         private readonly IStartupRegistration _startup;
         private readonly Action<Action> _post;
         private readonly Action<string> _reveal;
+        private readonly HdrModeSwitcher? _hdr;
+        private readonly Action<Action> _background;
         private int _displayEventSeq;
         private bool _started;
 
@@ -41,7 +46,9 @@ namespace Gloam.ViewModels
             IStartupRegistration startup,
             Action<Action> post,
             Action exit,
-            Action<string>? reveal = null)
+            Action<string>? reveal = null,
+            HdrModeSwitcher? hdr = null,
+            Action<Action>? background = null)
         {
             _settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _monitorSource = monitorSource ?? throw new ArgumentNullException(nameof(monitorSource));
@@ -49,6 +56,8 @@ namespace Gloam.ViewModels
             _startup = startup ?? throw new ArgumentNullException(nameof(startup));
             _post = post ?? throw new ArgumentNullException(nameof(post));
             _reveal = reveal ?? (_ => { });
+            _hdr = hdr;
+            _background = background ?? (action => Task.Run(action));
             ArgumentNullException.ThrowIfNull(exit);
 
             Media = new MediaProfileViewModel(settings);
@@ -103,10 +112,20 @@ namespace Gloam.ViewModels
             set { if (value) SelectProfile(DisplayProfileSelection.Media); }
         }
 
+        public bool IsSdr
+        {
+            get => _selection == DisplayProfileSelection.Sdr;
+            set { if (value) SelectProfile(DisplayProfileSelection.Sdr); }
+        }
+
         /// <summary>The profile section's status line.</summary>
-        public string ProfileDetail => _selection == DisplayProfileSelection.Media
-            ? (Media.AppliesTo?.DevicePath == null ? "Media on all displays" : $"Media on {Media.AppliesTo.Label}")
-            : "Each display's own settings";
+        public string ProfileDetail => _selection switch
+        {
+            DisplayProfileSelection.Media =>
+                Media.AppliesTo?.DevicePath == null ? "Media on all displays" : $"Media on {Media.AppliesTo.Label}",
+            DisplayProfileSelection.Sdr => "HDR off, each display's own settings",
+            _ => "Each display's own settings",
+        };
 
         private bool _startWithWindows;
         public bool StartWithWindows
@@ -149,6 +168,7 @@ namespace Gloam.ViewModels
             _settings.MonitorProfileChanged += OnMonitorProfileChanged;
             _settings.DisplayProfileChanged += OnDisplayProfileChanged;
             RefreshMonitors();
+            SwitchHdrMode();
         }
 
         /// <summary>
@@ -224,10 +244,39 @@ namespace Gloam.ViewModels
 
         private void OnDisplayProfileChanged() => _post(() =>
         {
+            DisplayProfileSelection previous = _selection;
             Media.Reload();
             SyncSelection();
             ApplyAll();
+            // Only a profile switch changes the HDR mode; editing the Media profile does not.
+            if (_selection != previous) SwitchHdrMode();
         });
+
+        /// <summary>
+        /// Puts the displays in the selected profile's HDR mode, in the background. Both the
+        /// profile and the displays' modes are read when the switch runs, not when it was asked
+        /// for, so of two quick switches the later one wins and none acts on a stale mode.
+        /// After a change the displays are listed and applied again at once: the LUT depends on
+        /// the mode. Windows' own display-change messages follow and re-apply once more, which
+        /// the identical-ramp dedupe makes free.
+        /// </summary>
+        private void SwitchHdrMode()
+        {
+            if (_hdr == null) return;
+            _background(() =>
+            {
+                try
+                {
+                    if (_hdr.Apply(_monitorSource, () => _settings.ProfileSelection) == 0) return;
+                    _applyService.InvalidateAppliedState();
+                    _post(RefreshMonitors);
+                }
+                catch (Exception ex)
+                {
+                    Log.Error($"MainViewModel: HDR switch failed: {ex}");
+                }
+            });
+        }
 
         private void SyncSelection()
         {
@@ -235,6 +284,7 @@ namespace Gloam.ViewModels
             _selection = _settings.ProfileSelection;
             OnPropertyChanged(nameof(IsNormal));
             OnPropertyChanged(nameof(IsMedia));
+            OnPropertyChanged(nameof(IsSdr));
             OnPropertyChanged(nameof(Selection));
             OnPropertyChanged(nameof(ProfileDetail));
 

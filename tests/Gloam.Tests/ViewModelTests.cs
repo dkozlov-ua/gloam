@@ -25,6 +25,7 @@ namespace Gloam.Tests
         private readonly FakeGammaRamp _ramp = new();
         private readonly FakeUpdater _updater = new();
         private readonly FakeStartupRegistration _startup = new();
+        private readonly FakeHdrSwitch _hdr;
         private readonly GammaApplyService _apply;
         private readonly List<string> _revealed = [];
         private int _exits;
@@ -32,6 +33,7 @@ namespace Gloam.Tests
         public ViewModelTests()
         {
             _apply = new GammaApplyService(new GammaRampWriter(_ramp), _settings);
+            _hdr = new FakeHdrSwitch(_monitors);
         }
 
         public void Dispose()
@@ -43,7 +45,8 @@ namespace Gloam.Tests
         private MainViewModel Start()
         {
             var vm = new MainViewModel(_settings, _monitors, _apply, _updater, _startup,
-                post: action => action(), exit: () => _exits++, reveal: _revealed.Add);
+                post: action => action(), exit: () => _exits++, reveal: _revealed.Add,
+                hdr: new HdrModeSwitcher(_hdr), background: action => action());
             vm.Start();
             return vm;
         }
@@ -51,7 +54,7 @@ namespace Gloam.Tests
         private void AssertRamp(int display, GammaMode mode, DisplayAdjustments adjustments)
         {
             MonitorInfo monitor = _monitors.Monitors[display - 1];
-            ushort[] expected = FakeGammaRamp.Expected(mode, monitor.SdrWhiteLevel, adjustments, monitor.IsHdrActive);
+            ushort[] expected = FakeGammaRamp.Expected(mode, monitor.SdrWhiteLevel, FakeGammaRamp.AsShown(adjustments), monitor.IsHdrActive);
             Eventually.True(() => _ramp.Ramp(monitor.DeviceName) is { } actual && actual.SequenceEqual(expected),
                 $"display {display} to show {mode} at {adjustments.Brightness}% (shadow {adjustments.ShadowDetailStrength})");
         }
@@ -84,7 +87,6 @@ namespace Gloam.Tests
             Assert.True(display.IsGamma22);
             Assert.Equal(60, display.Brightness);
             Assert.Equal("60%", display.BrightnessText);
-            Assert.False(display.PreserveShadows);
             AssertRamp(1, GammaMode.Gamma22, new DisplayAdjustments { Brightness = 60, UseLinearBrightness = true });
         }
 
@@ -96,12 +98,10 @@ namespace Gloam.Tests
 
             display.IsGamma22 = true;
             display.Brightness = 70;
-            display.PreserveShadows = false;
 
             MonitorProfileData saved = new SettingsManager().GetMonitorProfile(@"SIM\2")!;
             Assert.Equal(GammaMode.Gamma22, saved.GammaMode);
             Assert.Equal(70, saved.Brightness);
-            Assert.True(saved.UseLinearBrightness);
             AssertRamp(2, GammaMode.Gamma22, new DisplayAdjustments { Brightness = 70, UseLinearBrightness = true });
             // The other display is untouched.
             Assert.Null(_settings.GetMonitorProfile(@"SIM\1"));
@@ -187,7 +187,6 @@ namespace Gloam.Tests
             var vm = Start();
             vm.Media.OverrideBrightness = true;
             vm.Media.Brightness = 100;
-            vm.Media.ShadowDetail = 40;
             var changes = 0;
             vm.ProfileChanged += () => changes++;
 
@@ -199,7 +198,7 @@ namespace Gloam.Tests
             Assert.Equal(1, changes);
             Assert.Equal("Media on all displays", vm.ProfileDetail);
             Assert.Equal("Media is active on this display and sets its brightness.", vm.Monitors[0].MediaNote);
-            AssertRamp(1, GammaMode.Gamma24, new DisplayAdjustments { Brightness = 100, ShadowDetailStrength = 0.4 });
+            AssertRamp(1, GammaMode.Gamma24, new DisplayAdjustments { Brightness = 100 });
 
             vm.IsNormal = true;
 
@@ -207,6 +206,94 @@ namespace Gloam.Tests
             Assert.Equal("Each display's own settings", vm.ProfileDetail);
             AssertRamp(1, GammaMode.Gamma24, new DisplayAdjustments { Brightness = 75 });
             Assert.Equal(2, changes);
+        }
+
+        [Fact]
+        public void Sdr_TurnsHdrOffAndAppliesTheDisplaysOwnSettingsInSdr()
+        {
+            _settings.SetMonitorProfile(@"SIM\1", new MonitorProfileData { GammaMode = GammaMode.Gamma24, Brightness = 75 });
+            var vm = Start();
+            vm.Media.OverrideBrightness = true;
+            vm.Media.Brightness = 100;
+            var changes = 0;
+            vm.ProfileChanged += () => changes++;
+
+            vm.IsSdr = true;
+
+            Assert.True(vm.IsSdr);
+            Assert.False(vm.IsNormal);
+            Assert.False(vm.IsMedia);
+            Assert.Equal(1, changes);
+            Assert.Equal(DisplayProfileSelection.Sdr, new SettingsManager().ProfileSelection);
+            Assert.Equal("HDR off, each display's own settings", vm.ProfileDetail);
+            // Only display 1 has HDR to turn off; display 2 is SDR-only.
+            Assert.Equal(new[] { (@"\\.\DISPLAY1", false) }, _hdr.Switches);
+            Assert.False(vm.Monitors[0].IsHdr);
+            Assert.Null(vm.Monitors[0].MediaNote);
+            AssertRamp(1, GammaMode.Gamma24, new DisplayAdjustments { Brightness = 75 });
+
+            vm.IsNormal = true;
+
+            Assert.Equal(new[] { (@"\\.\DISPLAY1", false), (@"\\.\DISPLAY1", true) }, _hdr.Switches);
+            Assert.True(vm.Monitors[0].IsHdr);
+            AssertRamp(1, GammaMode.Gamma24, new DisplayAdjustments { Brightness = 75 });
+        }
+
+        [Fact]
+        public void Media_TurnsHdrBackOnAfterSdr()
+        {
+            var vm = Start();
+            vm.IsSdr = true;
+
+            vm.IsMedia = true;
+
+            Assert.True(_monitors.Monitors[0].IsHdrActive);
+            Assert.True(vm.Monitors[0].IsHdr);
+        }
+
+        [Fact]
+        public void Start_PutsTheDisplaysInTheSavedProfilesMode()
+        {
+            Assert.True(_settings.TrySetProfileSelection(DisplayProfileSelection.Sdr));
+
+            var vm = Start();
+
+            Assert.Equal(new[] { (@"\\.\DISPLAY1", false) }, _hdr.Switches);
+            Assert.False(vm.Monitors[0].IsHdr);
+            AssertRamp(1, GammaMode.Gamma24, DisplayAdjustments.Default);
+        }
+
+        [Fact]
+        public async Task HdrChangedByHand_HoldsUntilTheNextProfileSwitch()
+        {
+            var vm = Start();
+            vm.IsMedia = true;
+
+            // Win+Alt+B: HDR goes off outside Gloam, Windows reports a display change.
+            _monitors.Monitors[0].IsHdrActive = false;
+            await vm.HandleDisplayEventAsync(TimeSpan.Zero);
+            // Editing the Media profile is not a profile switch either.
+            vm.Media.Brightness = 60;
+
+            Assert.Empty(_hdr.Switches);
+            Assert.False(vm.Monitors[0].IsHdr);
+
+            vm.IsNormal = true;
+
+            Assert.Equal(new[] { (@"\\.\DISPLAY1", true) }, _hdr.Switches);
+        }
+
+        [Fact]
+        public void RefusedHdrSwitch_KeepsTheProfileAndTheDisplaysAsTheyAre()
+        {
+            var vm = Start();
+            _hdr.Accepts = false;
+
+            vm.IsSdr = true;
+
+            Assert.True(vm.IsSdr);
+            Assert.True(vm.Monitors[0].IsHdr);
+            AssertRamp(1, GammaMode.Gamma24, DisplayAdjustments.Default);
         }
 
         [Fact]
@@ -283,7 +370,6 @@ namespace Gloam.Tests
             media.IsGamma24 = true;
             media.OverrideBrightness = true;
             media.Brightness = 65;
-            media.ShadowDetail = 35;
             media.AppliesTo = media.DisplayChoices.Single(c => c.DevicePath == @"SIM\1");
 
             MediaProfile saved = new SettingsManager().MediaProfile;
@@ -291,11 +377,9 @@ namespace Gloam.Tests
             Assert.Equal(GammaMode.Gamma24, saved.GammaMode);
             Assert.True(saved.OverrideBrightness);
             Assert.Equal(65, saved.Brightness);
-            Assert.Equal(0.35, saved.ShadowDetailStrength, 10);
             Assert.Equal(MediaDisplayScope.SpecificDisplay, saved.DisplayScope);
             Assert.Equal(@"SIM\1", saved.MonitorDevicePath);
-            Assert.Equal("Gamma 2.4, brightness 65%, dark areas +35%", media.Summary);
-            Assert.Equal("35%", media.ShadowDetailText);
+            Assert.Equal("Gamma 2.4, brightness 65%", media.Summary);
 
             media.AppliesTo = media.DisplayChoices[0];
             Assert.Equal(MediaDisplayScope.AllDisplays, new SettingsManager().MediaProfile.DisplayScope);
@@ -307,7 +391,6 @@ namespace Gloam.Tests
             var vm = Start();
 
             Assert.Equal("Same as Normal", vm.Media.Summary);
-            Assert.Equal("Off", vm.Media.ShadowDetailText);
             Assert.Equal(MediaProfileViewModel.AllDisplaysLabel, vm.Media.AppliesTo!.Label);
             Assert.Equal(new[] { "All displays", "1. Panel 1", "2. Panel 2" }, vm.Media.DisplayChoices.Select(c => c.Label));
         }

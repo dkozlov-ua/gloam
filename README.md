@@ -1,6 +1,6 @@
 # Gloam
 
-Fix washed-out SDR content in Windows HDR mode. Per-monitor gamma correction and brightness, with a second profile for media, from a small panel by the clock.
+Fix washed-out SDR content in Windows HDR mode. Per-monitor gamma correction and brightness, with profiles for media and for SDR, from a small panel by the clock.
 
 [![Latest release](https://img.shields.io/github/v/release/dkozlov-ua/gloam?sort=semver)](https://github.com/dkozlov-ua/gloam/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
@@ -22,22 +22,22 @@ That is the whole fix. Everything below is optional.
 ## What it does
 
 - Fixes the Windows SDR-in-HDR gamma mismatch per monitor, with gamma 2.2 (everyday) or 2.4 (dark room).
-- Dims each monitor in software, with a curve that keeps shadow detail, and fades HDR highlights with it.
-- Keeps two profiles. **Normal** is each monitor's own settings. **Media** layers a set of overrides on top: gamma, brightness, and dark-area visibility, on every display or one.
-- Lets scripts switch profiles: `Gloam.exe --profile-set media` and `--profile-set normal`.
+- Dims each monitor in software, and fades HDR highlights with it.
+- Keeps three profiles. **Normal** is each monitor's own settings. **Media** layers a set of overrides on top, gamma and brightness, on every display or one. **SDR** turns Windows HDR off and keeps each monitor's own settings; Normal and Media turn it back on.
+- Lets scripts switch profiles: `Gloam.exe --profile-set media`, `--profile-set sdr` and `--profile-set normal`.
 - Restores the correction on startup, display changes, resume, and when a game or driver resets the gamma ramp.
 - Updates on request: **Check for updates** installs a newer release in place.
 - Runs locally. No accounts, no telemetry.
 
 ## Use
 
-Left-click the tray icon to open Gloam's panel; click it again, press Esc, or click elsewhere to close it. Every setting is in the panel and takes effect as you change it. Right-click the icon for a menu with the two profiles and Exit.
+Left-click the tray icon to open Gloam's panel; click it again, press Esc, or click elsewhere to close it. Every setting is in the panel and takes effect as you change it. Right-click the icon for a menu with the three profiles and Exit. The icon shows the profile: in colour for Normal, with a play badge for Media, grey for SDR.
 
-- **Profile.** Normal or Media. The choice is kept across restarts.
+- **Profile.** Normal, Media or SDR. The choice is kept across restarts. Normal and Media turn HDR on for every display that supports it; SDR turns it off. Gloam sets the mode when you switch profiles and when it starts, so HDR switched by hand (Win+Alt+B or Settings) stays as you left it until the next profile switch.
 - **Display.** With several monitors, pick one from the list first.
   - **Gamma.** 2.2 for general PC use, 2.4 for dark-room video or BT.1886-style viewing.
-  - **Brightness.** 10–100%. **Keep shadow detail when dimming** dims with a curve that keeps near-black detail visible; turn it off for a straight dim.
-- **Media profile.** What Media changes while it is on. Tick **Gamma** or **Brightness** to override the monitor's own value. **Dark-area visibility** lifts the darkest tones and leaves everything above them unchanged. **Applies to** limits Media to one display.
+  - **Brightness.** 10–100%, a straight dim of every level alike.
+- **Media profile.** What Media changes while it is on. Tick **Gamma** or **Brightness** to override the monitor's own value. **Applies to** limits Media to one display.
 - **Start with Windows**, **Check for updates**, export diagnostics (the bug button), and Exit are at the bottom.
 
 Starting Gloam again from the Start menu opens the panel of the Gloam that is already running.
@@ -48,7 +48,8 @@ Something not behaving? See [Troubleshooting](docs/troubleshooting.md).
 
 ```powershell
 Gloam.exe --profile-set media    # switch to Media
-Gloam.exe --profile-set normal   # back to Normal
+Gloam.exe --profile-set sdr      # HDR off
+Gloam.exe --profile-set normal   # back to Normal, HDR on
 ```
 
 The choice is saved and survives restarts. `auto`, from scripts written for the old automatic switching, means `normal`. When Gloam is already running, the command is forwarded to it. Otherwise the command starts Gloam in the tray with that profile and exits once it confirms, within 20 seconds. Gloam is a windowed app, so a shell doesn't wait for it. To read the exit code, use `Start-Process Gloam.exe -ArgumentList '--profile-set','media' -Wait -PassThru`. Exit codes: `0` applied, `1` could not be saved, `2` invalid arguments, `3` the running instance did not answer (or a newly started one did not come up in time).

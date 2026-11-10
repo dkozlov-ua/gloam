@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json.Nodes;
 using System.Windows.Automation;
 using Gloam.Core;
+using Gloam.TestSupport;
 using Microsoft.Win32;
 
 [assembly: CollectionBehavior(DisableTestParallelization = true)] // one app on the desktop at a time
@@ -24,6 +25,7 @@ internal sealed class AppUnderTest : IDisposable
     public string Work { get; }
     public string MonitorsFile => Path.Combine(Work, "monitors.json");
     public string RampsFile => MonitorsFile + ".ramps.json";
+    public string RevealsFile => MonitorsFile + ".reveals.txt";
     public string DataFolder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Gloam-" + Profile);
     public string SettingsFile => Path.Combine(DataFolder, "settings.json");
     public string LogFile => Path.Combine(DataFolder, "app.log");
@@ -38,6 +40,9 @@ internal sealed class AppUnderTest : IDisposable
 
     public Process? Process { get; private set; }
     public int Pid => Process!.Id;
+
+    // Held from setup to teardown: see DesktopLock.
+    private readonly DesktopLock _desktop = DesktopLock.Take();
 
     public AppUnderTest()
     {
@@ -147,14 +152,34 @@ internal sealed class AppUnderTest : IDisposable
         }
     }
 
-    /// <summary>Waits until display <paramref name="index"/> shows the ramp for these settings.</summary>
-    public void ShowsRamp(int index, GammaMode mode, double brightness = 100, double shadow = 0, bool linear = false)
+    /// <summary>
+    /// Waits until display <paramref name="index"/> shows the ramp for these settings, in HDR
+    /// unless <paramref name="hdr"/> says otherwise (the display's initial mode by default).
+    /// Gloam dims every display with a straight multiply and no dark-area lift, whatever is
+    /// saved, so that is the ramp expected.
+    /// </summary>
+    public void ShowsRamp(int index, GammaMode mode, double brightness = 100, bool? hdr = null)
     {
         var d = Displays[index];
-        var adjustments = new DisplayAdjustments { Brightness = brightness, ShadowDetailStrength = shadow, UseLinearBrightness = linear };
-        ushort[] expected = NativeGammaRamp.BuildRampChannel(LutGenerator.GenerateLut(mode, d.White, adjustments, d.Hdr).R);
+        bool inHdr = hdr ?? d.Hdr;
+        var adjustments = new DisplayAdjustments { Brightness = brightness, UseLinearBrightness = true };
+        ushort[] expected = NativeGammaRamp.BuildRampChannel(LutGenerator.GenerateLut(mode, d.White, adjustments, inHdr).R);
         Ui.Until(() => Ramp(d.Device) is { } actual && actual.SequenceEqual(expected),
-            $"{d.Name} to show {mode} at {brightness}% (shadow {shadow}, linear {linear})");
+            $"{d.Name} to show {mode} at {brightness}% ({(inHdr ? "HDR" : "SDR")})");
+    }
+
+    /// <summary>Whether the simulated display is in HDR now, as monitors.json says.</summary>
+    public bool IsHdr(int index)
+    {
+        try
+        {
+            return JsonNode.Parse(ReadShared(MonitorsFile)) is JsonArray list &&
+                   list[index]?["IsHdrActive"]?.GetValue<bool>() == true;
+        }
+        catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException)
+        {
+            return false;
+        }
     }
 
     public string? RunValue()
@@ -196,5 +221,6 @@ internal sealed class AppUnderTest : IDisposable
             try { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
         }
+        _desktop.Dispose();
     }
 }

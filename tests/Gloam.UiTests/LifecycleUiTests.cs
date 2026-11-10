@@ -63,6 +63,10 @@ public sealed class LifecycleUiTests : IDisposable
         Ui.Until(() => window.ById("ProfileNormal").IsSelected(), "Normal to be shown as selected");
         _app.ShowsRamp(0, GammaMode.Gamma24);
 
+        Assert.Equal(0, _app.Run("--profile-set", "sdr"));
+        Ui.Until(() => window.ById("ProfileSdr").IsSelected(), "SDR to be shown as selected");
+        Ui.Until(() => !_app.IsHdr(0), "Sim One to leave HDR");
+
         Assert.Equal(2, _app.Run("--profile-set", "game"));
         Assert.Single(_app.RunningPids());
     }

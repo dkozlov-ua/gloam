@@ -8,6 +8,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Gloam.Core;
+using Gloam.TestSupport;
 using Gloam.ViewModels;
 using Xunit;
 using Xunit.Abstractions;
@@ -25,6 +26,8 @@ namespace Gloam.Tests
         [Fact]
         public void Flyout_RendersEverySectionWithItsControls()
         {
+            // The window takes the foreground; the UI tests' Gloam must not be on screen then.
+            using var desktop = DesktopLock.Take();
             WpfTestHost.Run(() =>
             {
                 using var data = new TempDataScope();
@@ -57,12 +60,15 @@ namespace Gloam.Tests
                         .ToHashSet();
                     foreach (string id in new[]
                              {
-                                 "ProfileNormal", "ProfileMedia", "DisplayPicker", "DisplayGamma22", "DisplayGamma24",
-                                 "DisplayBrightness", "DisplayPreserveShadows", "DisplayMediaNote", "MediaOverrideGamma",
-                                 "MediaGamma22", "MediaOverrideBrightness", "MediaBrightness", "MediaShadowDetail",
+                                 "ProfileNormal", "ProfileMedia", "ProfileSdr", "DisplayPicker", "DisplayGamma22", "DisplayGamma24",
+                                 "DisplayBrightness", "DisplayMediaNote", "MediaOverrideGamma",
+                                 "MediaGamma22", "MediaOverrideBrightness", "MediaBrightness",
                                  "MediaAppliesTo", "StartWithWindows", "Update", "ExportDiagnostics", "Exit", "Version",
                              })
                         Assert.Contains(id, ids);
+                    // Shadow-preserving dimming and dark-area visibility are not offered.
+                    Assert.DoesNotContain("DisplayPreserveShadows", ids);
+                    Assert.DoesNotContain("MediaShadowDetail", ids);
 
                     var media = Descendants(window).OfType<RadioButton>().Single(r => AutomationProperties.GetAutomationId(r) == "ProfileMedia");
                     Assert.True(media.IsChecked);

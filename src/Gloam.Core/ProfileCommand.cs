@@ -16,7 +16,7 @@ namespace Gloam.Core
     }
 
     /// <summary>
-    /// Scripting entry point: <c>Gloam.exe --profile-set normal|media</c>. The choice is
+    /// Scripting entry point: <c>Gloam.exe --profile-set normal|media|sdr</c>. The choice is
     /// sticky: it holds until another profile is set.
     /// </summary>
     public static class ProfileCommandLine
@@ -62,7 +62,7 @@ namespace Gloam.Core
                 result = TryParseValue(value, out DisplayProfileSelection selection)
                     ? new ProfileCommand(true, selection, null)
                     : new ProfileCommand(true, null,
-                        $"{Option} expects normal or media; got '{value ?? string.Empty}'.");
+                        $"{Option} expects normal, media or sdr; got '{value ?? string.Empty}'.");
             }
             return result;
         }
@@ -76,6 +76,9 @@ namespace Gloam.Core
                     return true;
                 case "media":
                     selection = DisplayProfileSelection.Media;
+                    return true;
+                case "sdr":
+                    selection = DisplayProfileSelection.Sdr;
                     return true;
                 // Automatic switching (Media while a library game ran) is gone. Scripts that
                 // still end a game session with "auto" mean "back to normal".
@@ -112,6 +115,7 @@ namespace Gloam.Core
         public static string ToArgument(DisplayProfileSelection selection) => selection switch
         {
             DisplayProfileSelection.Media => "media",
+            DisplayProfileSelection.Sdr => "sdr",
             _ => "normal"
         };
     }

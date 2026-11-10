@@ -183,7 +183,7 @@ namespace Gloam
                 Log.Info("Launch smoke: starting.");
                 Log.Info($"Launch smoke: data dir = {AppPaths.DataDir}");
 
-                var (settings, monitors, apply) = App.CreateServices();
+                var (settings, monitors, apply, _, _) = App.CreateServices();
                 using (apply)
                 {
                     _ = settings.ProfileSelection;

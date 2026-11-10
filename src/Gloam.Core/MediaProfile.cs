@@ -4,8 +4,10 @@ namespace Gloam.Core
 {
     /// <summary>
     /// Which display profile owns the output. Normal is each monitor's own settings. Media
-    /// layers the single <see cref="MediaProfile"/> on top of them. The choice is sticky: it
-    /// survives restarts until another profile is chosen.
+    /// layers the single <see cref="MediaProfile"/> on top of them. Both put HDR-capable
+    /// displays in HDR; SDR turns HDR off and keeps each monitor's own settings
+    /// (<see cref="HdrModeSwitcher"/>). The choice is sticky: it survives restarts until
+    /// another profile is chosen.
     /// </summary>
     /// <remarks>
     /// Normal must stay the zero value: settings.json stores the name, and an unknown name
@@ -14,7 +16,8 @@ namespace Gloam.Core
     public enum DisplayProfileSelection
     {
         Normal,
-        Media
+        Media,
+        Sdr
     }
 
     /// <summary>Which connected displays the Media profile applies to.</summary>

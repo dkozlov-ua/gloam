@@ -47,19 +47,27 @@
                                        AutomationProperties.AutomationId="ProfileDetail" />
                             <TextBlock Text="Profile" Style="{StaticResource CardTitle}" />
                         </DockPanel>
-                        <UniformGrid Columns="2" Margin="0,0,-8,0">
+                        <UniformGrid Columns="3" Margin="0,0,-8,0">
                             <RadioButton Style="{StaticResource ModeButton}" GroupName="Profile" IsChecked="{Binding IsNormal}"
                                          AutomationProperties.Name="Normal" AutomationProperties.AutomationId="ProfileNormal">
                                 <StackPanel>
                                     <TextBlock Style="{StaticResource ModeLabel}" Text="Normal" />
-                                    <TextBlock Style="{StaticResource ModeHint}" Text="Each display's settings" />
+                                    <TextBlock Style="{StaticResource ModeHint}" Text="HDR" />
                                 </StackPanel>
                             </RadioButton>
                             <RadioButton Style="{StaticResource ModeButton}" GroupName="Profile" IsChecked="{Binding IsMedia}"
                                          AutomationProperties.Name="Media" AutomationProperties.AutomationId="ProfileMedia">
                                 <StackPanel>
                                     <TextBlock Style="{StaticResource ModeLabel}" Text="Media" />
-                                    <TextBlock Style="{StaticResource ModeHint}" Text="{Binding Media.Summary}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Style="{StaticResource ModeHint}" Text="{Binding Media.Summary}" TextTrimming="CharacterEllipsis"
+                                               ToolTip="{Binding Media.Summary}" />
+                                </StackPanel>
+                            </RadioButton>
+                            <RadioButton Style="{StaticResource ModeButton}" GroupName="Profile" IsChecked="{Binding IsSdr}"
+                                         AutomationProperties.Name="SDR" AutomationProperties.AutomationId="ProfileSdr">
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource ModeLabel}" Text="SDR" />
+                                    <TextBlock Style="{StaticResource ModeHint}" Text="HDR off" />
                                 </StackPanel>
                             </RadioButton>
                         </UniformGrid>
@@ -117,11 +125,8 @@
                                 <TextBlock Text="Brightness" Style="{StaticResource Caption}" />
                             </DockPanel>
                             <Slider Minimum="10" Maximum="100" SmallChange="1" LargeChange="10" IsSnapToTickEnabled="True" TickFrequency="1"
-                                    Value="{Binding Brightness, Delay=150}" Margin="0,4,0,6"
+                                    Value="{Binding Brightness, Delay=150}" Margin="0,4,0,0"
                                     AutomationProperties.Name="Brightness" AutomationProperties.AutomationId="DisplayBrightness" />
-                            <CheckBox Content="Keep shadow detail when dimming" IsChecked="{Binding PreserveShadows}"
-                                      ToolTip="Dims with a curve that keeps near-black detail visible, instead of scaling every level alike."
-                                      AutomationProperties.AutomationId="DisplayPreserveShadows" />
                             <StackPanel Orientation="Horizontal" Margin="0,8,0,0"
                                         Visibility="{Binding HasMediaNote, Converter={StaticResource BoolToVisibility}}">
                                 <TextBlock Style="{StaticResource Glyph}" FontSize="13" Text="&#xE946;" />
@@ -166,16 +171,6 @@
                         <Slider Minimum="10" Maximum="100" SmallChange="1" LargeChange="10" IsSnapToTickEnabled="True" TickFrequency="1"
                                 Value="{Binding Brightness, Delay=150}" IsEnabled="{Binding OverrideBrightness}" Margin="0,4,0,10"
                                 AutomationProperties.Name="Media brightness" AutomationProperties.AutomationId="MediaBrightness" />
-
-                        <DockPanel>
-                            <TextBlock DockPanel.Dock="Right" Text="{Binding ShadowDetailText}" Style="{StaticResource Caption}"
-                                       AutomationProperties.AutomationId="MediaShadowDetailText" />
-                            <TextBlock Text="Dark-area visibility" Style="{StaticResource Caption}"
-                                       ToolTip="Lifts the darkest tones so detail in shadows stays visible. Everything above them is unchanged." />
-                        </DockPanel>
-                        <Slider Minimum="0" Maximum="100" SmallChange="1" LargeChange="10" IsSnapToTickEnabled="True" TickFrequency="1"
-                                Value="{Binding ShadowDetail, Delay=150}" Margin="0,4,0,10"
-                                AutomationProperties.Name="Dark-area visibility" AutomationProperties.AutomationId="MediaShadowDetail" />
 
                         <DockPanel>
                             <TextBlock Text="Applies to" Style="{StaticResource Caption}" Margin="0,0,12,0" />

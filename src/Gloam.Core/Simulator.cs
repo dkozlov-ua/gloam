@@ -38,6 +38,8 @@ namespace Gloam.Core
     /// variable: the path of a JSON file listing the monitors. The app then never touches a
     /// real display; each ramp it writes goes, as the 256-entry hardware ramp, into
     /// <see cref="RampsFile"/> beside it, where a test can read what a display would show.
+    /// Turning HDR on or off rewrites the display's entry in the monitor file, as Windows
+    /// would change what the next enumeration reports.
     /// The monitor file is read again on every enumeration, so a test can change the displays
     /// and then trigger a refresh.
     /// </summary>
@@ -47,7 +49,7 @@ namespace Gloam.Core
     ///    "IsHdrActive": true, "SdrWhiteLevel": 240 }]
     /// </code>
     /// </example>
-    public sealed class Simulator : IMonitorSource, IGammaRamp
+    public sealed class Simulator : IMonitorSource, IGammaRamp, IHdrSwitch
     {
         public const string EnvironmentVariable = "GLOAM_SIMULATOR";
 
@@ -63,6 +65,19 @@ namespace Gloam.Core
         public string MonitorsFile { get; }
 
         public string RampsFile => MonitorsFile + ".ramps.json";
+
+        /// <summary>Where <see cref="Reveal"/> records the files the app would have shown in Explorer.</summary>
+        public string RevealsFile => MonitorsFile + ".reveals.txt";
+
+        /// <summary>
+        /// Stands in for showing a file in Explorer: records its path, one per line. A real
+        /// Explorer outlives the test that opened it, and once the test has removed its data
+        /// folder it pops up "Location is not available" on the user's desktop.
+        /// </summary>
+        public void Reveal(string path)
+        {
+            lock (_lock) File.AppendAllText(RevealsFile, path + Environment.NewLine);
+        }
 
         /// <summary>The simulator the environment asks for, or null for real displays.</summary>
         public static Simulator? FromEnvironment()
@@ -114,6 +129,40 @@ namespace Gloam.Core
             green = FromJson(ramp["Green"]);
             blue = FromJson(ramp["Blue"]);
             return true;
+        }
+
+        public bool TrySetHdr(MonitorInfo monitor, bool enabled)
+        {
+            ArgumentNullException.ThrowIfNull(monitor);
+            lock (_lock)
+            {
+                try
+                {
+                    if (JsonNode.Parse(File.ReadAllText(MonitorsFile)) is not JsonArray list) return false;
+                    foreach (JsonNode? node in list)
+                    {
+                        if (node is not JsonObject entry ||
+                            !string.Equals(entry["DeviceName"]?.GetValue<string>(), monitor.DeviceName, StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        bool capable = entry["IsHdrCapable"]?.GetValue<bool>() == true || entry["IsHdrActive"]?.GetValue<bool>() == true;
+                        if (!capable) return false;
+                        // Capability is kept explicitly: EnumerateMonitors otherwise infers it
+                        // from the active state, and a display switched to SDR would lose it.
+                        entry["IsHdrCapable"] = true;
+                        entry["IsHdrActive"] = enabled;
+                        string temp = MonitorsFile + ".tmp";
+                        File.WriteAllText(temp, list.ToJsonString());
+                        File.Move(temp, MonitorsFile, overwrite: true);
+                        return true;
+                    }
+                    return false;
+                }
+                catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException)
+                {
+                    Log.Error($"Simulator: could not switch HDR in {MonitorsFile}: {ex.Message}");
+                    return false;
+                }
+            }
         }
 
         public bool TryClear(string deviceName)

@@ -97,6 +97,43 @@ namespace Gloam.Tests
         }
 
         [Fact]
+        public void Simulator_SwitchesHdrInItsMonitorFileAndKeepsTheCapability()
+        {
+            using var data = new TempDataScope();
+            string file = Path.Combine(data.Root, "monitors.json");
+            File.WriteAllText(file, """
+                [{ "DeviceName": "\\\\.\\DISPLAY1", "FriendlyName": "One", "MonitorDevicePath": "SIM\\ONE", "IsHdrActive": true },
+                 { "DeviceName": "\\\\.\\DISPLAY2", "FriendlyName": "Two", "MonitorDevicePath": "SIM\\TWO" }]
+                """);
+            var simulator = new Simulator(file);
+            var monitors = simulator.EnumerateMonitors();
+
+            Assert.True(simulator.TrySetHdr(monitors[0], false));
+            MonitorInfo off = simulator.EnumerateMonitors()[0];
+            Assert.False(off.IsHdrActive);
+            Assert.True(off.IsHdrCapable);
+
+            Assert.True(simulator.TrySetHdr(off, true));
+            Assert.True(simulator.EnumerateMonitors()[0].IsHdrActive);
+
+            // An SDR-only display refuses, as Windows does.
+            Assert.False(simulator.TrySetHdr(monitors[1], true));
+            Assert.False(simulator.EnumerateMonitors()[1].IsHdrActive);
+        }
+
+        [Fact]
+        public void Simulator_RecordsRevealedFilesInsteadOfOpeningExplorer()
+        {
+            using var data = new TempDataScope();
+            var simulator = new Simulator(Path.Combine(data.Root, "monitors.json"));
+
+            simulator.Reveal(@"C:\one.zip");
+            simulator.Reveal(@"C:\two.zip");
+
+            Assert.Equal(new[] { @"C:\one.zip", @"C:\two.zip" }, File.ReadAllLines(simulator.RevealsFile));
+        }
+
+        [Fact]
         public void Simulator_UnreadableFile_MeansNoDisplays()
         {
             Assert.Empty(new Simulator(Path.Combine(Path.GetTempPath(), "missing-" + System.Guid.NewGuid() + ".json")).EnumerateMonitors());

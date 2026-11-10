@@ -432,7 +432,7 @@ namespace Gloam.Core
 
             public Dictionary<string, MonitorProfileData> MonitorProfiles { get; set; } = new Dictionary<string, MonitorProfileData>();
             public MediaProfile MediaProfile { get; set; } = new MediaProfile();
-            /// <summary>The sticky Normal/Media choice.</summary>
+            /// <summary>The sticky Normal/Media/SDR choice.</summary>
             public DisplayProfileSelection ProfileSelection { get; set; }
             public bool StartupDefaultApplied { get; set; }
             public bool LegacyInstallWarningShown { get; set; }

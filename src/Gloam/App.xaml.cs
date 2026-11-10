@@ -23,16 +23,21 @@ namespace Gloam
 
         /// <summary>
         /// Builds the services every mode shares: settings, the displays (real, or the
-        /// <see cref="Simulator"/> the environment names) and the apply pipeline.
+        /// <see cref="Simulator"/> the environment names), the apply pipeline, the HDR switch,
+        /// and how a saved file is shown (Explorer, or the simulator's record of it).
         /// </summary>
-        internal static (SettingsManager Settings, IMonitorSource Monitors, GammaApplyService Apply) CreateServices()
+        internal static (SettingsManager Settings, IMonitorSource Monitors, GammaApplyService Apply, HdrModeSwitcher Hdr, Action<string> Reveal) CreateServices()
         {
             var settings = new SettingsManager();
             Simulator? simulator = Simulator.FromEnvironment();
             if (simulator != null) Log.Info($"App: simulated displays from {simulator.MonitorsFile}.");
             IMonitorSource monitors = simulator ?? (IMonitorSource)new MonitorManager();
             var apply = new GammaApplyService(new GammaRampWriter(simulator), settings);
-            return (settings, monitors, apply);
+            Action<string> reveal = simulator != null
+                ? simulator.Reveal
+                : path => Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true });
+            var hdr = new HdrModeSwitcher(simulator ?? (IHdrSwitch)new NativeHdrSwitch());
+            return (settings, monitors, apply, hdr, reveal);
         }
 
         protected override void OnStartup(StartupEventArgs e)
@@ -53,7 +58,7 @@ namespace Gloam
                     Log.Info(message);
                 base.OnStartup(e);
 
-                var (settings, monitors, apply) = CreateServices();
+                var (settings, monitors, apply, hdr, reveal) = CreateServices();
                 _applyService = apply;
 
                 var updater = new UpdateService();
@@ -74,7 +79,8 @@ namespace Gloam
                     settings, monitors, apply, updater, StartupManager.Instance,
                     post: action => Dispatcher.BeginInvoke(action),
                     exit: Shutdown,
-                    reveal: path => Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true }));
+                    reveal: reveal,
+                    hdr: hdr);
                 _window = new MainWindow(_viewModel);
                 MainWindow = _window;
 

@@ -63,6 +63,18 @@ namespace Gloam.Tests
             lock (_lock) return _ramps.TryGetValue(deviceName, out var ramp) ? ramp.R.ToArray() : null;
         }
 
+        /// <summary>
+        /// The adjustments a display gets for these settings: Gloam dims every display with a
+        /// straight multiply and no dark-area toe, whatever is saved (GammaApplyService.Resolve).
+        /// </summary>
+        public static DisplayAdjustments AsShown(DisplayAdjustments adjustments)
+        {
+            DisplayAdjustments shown = adjustments.Clone();
+            shown.UseLinearBrightness = true;
+            shown.ShadowDetailStrength = 0.0;
+            return shown;
+        }
+
         /// <summary>The ramp a LUT for these settings would put on the display.</summary>
         public static ushort[] Expected(GammaMode mode, double white, DisplayAdjustments adjustments, bool hdr) =>
             NativeGammaRamp.BuildRampChannel(LutGenerator.GenerateLut(mode, white, adjustments, hdr).R);
@@ -78,14 +90,16 @@ namespace Gloam.Tests
                 DeviceName = m.DeviceName,
                 FriendlyName = m.FriendlyName,
                 MonitorDevicePath = m.MonitorDevicePath,
+                IsHdrCapable = m.IsHdrCapable,
                 IsHdrActive = m.IsHdrActive,
                 SdrWhiteLevel = m.SdrWhiteLevel,
                 HMonitor = m.HMonitor,
                 CurrentGamma = m.CurrentGamma,
             }).ToList();
 
-        public static MonitorInfo Monitor(int n, bool hdr = true, double white = 240) => new()
+        public static MonitorInfo Monitor(int n, bool hdr = true, double white = 240, bool? capable = null) => new()
         {
+            IsHdrCapable = capable ?? hdr,
             DeviceName = $@"\\.\DISPLAY{n}",
             FriendlyName = $"Panel {n}",
             MonitorDevicePath = $@"SIM\{n}",
@@ -93,6 +107,26 @@ namespace Gloam.Tests
             SdrWhiteLevel = white,
             HMonitor = new IntPtr(100 + n),
         };
+    }
+
+    /// <summary>Switches HDR on the fake displays, as Windows would, and records each switch.</summary>
+    internal sealed class FakeHdrSwitch(FakeMonitorSource source) : IHdrSwitch
+    {
+        public List<(string Device, bool Hdr)> Switches { get; } = [];
+
+        /// <summary>When false, every switch is refused, like a driver error.</summary>
+        public bool Accepts { get; set; } = true;
+
+        public bool TrySetHdr(MonitorInfo monitor, bool enabled)
+        {
+            lock (Switches)
+            {
+                if (!Accepts) return false;
+                Switches.Add((monitor.DeviceName, enabled));
+                source.Monitors.Single(m => m.DeviceName == monitor.DeviceName).IsHdrActive = enabled;
+                return true;
+            }
+        }
     }
 
     internal sealed class FakeUpdater : IUpdater
