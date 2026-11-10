@@ -34,9 +34,9 @@ be most consequential:
   child processes, and locates the binaries at runtime. Argument handling, path resolution,
   and anything that could result in executing an unexpected binary is in scope.
 - **The updater.** The GitHub release check (`UpdateService`), the SHA-256 check against
-  GitHub's published asset digest, and `install.ps1`, which replaces files in the
-  installation under `%LOCALAPPDATA%\Programs\Gloam`. Releases are not code-signed: the
-  digest is the only integrity check.
+  GitHub's published asset digest, and the Inno Setup setup it runs (`installer\Gloam.iss`),
+  which replaces files in the installation under `%LOCALAPPDATA%\Programs\Gloam`. Releases
+  are not code-signed: the digest is the only integrity check.
 - **ICC/MHC2 profile generation and installation**, including what Gloam writes into the
   Windows color store.
 

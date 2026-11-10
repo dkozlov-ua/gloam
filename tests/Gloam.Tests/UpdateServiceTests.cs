@@ -45,7 +45,7 @@ namespace Gloam.Tests
             => new { name, browser_download_url = url ?? Prefix + "v0/" + name, digest, size };
 
         private static object Package(string version, string? sha = null, string? url = null)
-            => Asset($"Gloam-{version}.zip", url ?? $"{Prefix}v{version}/Gloam-{version}.zip",
+            => Asset($"Gloam-{version}-setup.exe", url ?? $"{Prefix}v{version}/Gloam-{version}-setup.exe",
                      sha == null ? "sha256:" + ValidSha : sha);
 
         [Fact]
@@ -57,7 +57,7 @@ namespace Gloam.Tests
             var release = Assert.IsType<UpdateRelease>(result.Release);
             Assert.Equal(new Version(1, 11, 0), release.Version);
             Assert.Equal("v1.11.0", release.Tag);
-            Assert.Equal($"{Prefix}v1.11.0/Gloam-1.11.0.zip", release.DownloadUrl);
+            Assert.Equal($"{Prefix}v1.11.0/Gloam-1.11.0-setup.exe", release.DownloadUrl);
             Assert.Equal(ValidSha, release.Sha256);
             Assert.Equal("Notes for v1.11.0", release.Notes);
         }
@@ -118,7 +118,7 @@ namespace Gloam.Tests
         public void Evaluate_ReleaseWithoutDigest_IsNotOffered()
         {
             var result = UpdateService.Evaluate(
-                Release("v1.11.0", Asset("Gloam-1.11.0.zip", $"{Prefix}v1.11.0/Gloam-1.11.0.zip", digest: null)),
+                Release("v1.11.0", Asset("Gloam-1.11.0-setup.exe", $"{Prefix}v1.11.0/Gloam-1.11.0-setup.exe", digest: null)),
                 new Version(1, 10, 8));
 
             Assert.Equal(UpdateCheckStatus.Failed, result.Status);
@@ -135,9 +135,9 @@ namespace Gloam.Tests
         }
 
         [Theory]
-        [InlineData("https://github.com/someone-else/gloam/releases/download/v1.11.0/Gloam-1.11.0.zip")]
-        [InlineData("https://example.com/Gloam-1.11.0.zip")]
-        [InlineData("http://github.com/dkozlov-ua/gloam/releases/download/v1.11.0/Gloam-1.11.0.zip")]
+        [InlineData("https://github.com/someone-else/gloam/releases/download/v1.11.0/Gloam-1.11.0-setup.exe")]
+        [InlineData("https://example.com/Gloam-1.11.0-setup.exe")]
+        [InlineData("http://github.com/dkozlov-ua/gloam/releases/download/v1.11.0/Gloam-1.11.0-setup.exe")]
         public void Evaluate_PackageFromElsewhere_IsNotOffered(string url)
         {
             var result = UpdateService.Evaluate(Release("v1.11.0", Package("1.11.0", url: url)), new Version(1, 10, 8));
@@ -146,17 +146,19 @@ namespace Gloam.Tests
         }
 
         [Fact]
-        public void Evaluate_OnlyTheVersionsOwnZipCounts()
+        public void Evaluate_OnlyTheVersionsOwnSetupCounts()
         {
-            // The Velopack-era assets and a zip of another version are not the package.
+            // The Velopack-era assets, the zip-era package and a setup of another version are
+            // not the setup.
             var result = UpdateService.Evaluate(
                 Release("v1.11.0",
                     Asset("GloamApp-win-Portable.zip", digest: "sha256:" + ValidSha),
+                    Asset("Gloam-1.11.0.zip", digest: "sha256:" + ValidSha),
                     Package("1.10.9")),
                 new Version(1, 10, 8));
 
             Assert.Equal(UpdateCheckStatus.Failed, result.Status);
-            Assert.Contains("Gloam-1.11.0.zip", result.Message);
+            Assert.Contains("Gloam-1.11.0-setup.exe", result.Message);
         }
 
         [Fact]
@@ -213,7 +215,7 @@ namespace Gloam.Tests
 
             string path = await service.DownloadAsync(release);
 
-            Assert.Equal(Path.Combine(AppPaths.DataDir, "Updates", "Gloam-1.11.0.zip"), path);
+            Assert.Equal(Path.Combine(AppPaths.DataDir, "Updates", "Gloam-1.11.0-setup.exe"), path);
             Assert.Equal(payload, File.ReadAllBytes(path));
             Assert.Equal(new[] { path }, Directory.GetFiles(UpdateService.UpdatesDir));
         }
@@ -253,7 +255,7 @@ namespace Gloam.Tests
         public async Task DownloadAsync_RefusesAUrlOutsideTheRepository()
         {
             var handler = new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.OK));
-            var release = ReleaseFor(Array.Empty<byte>()) with { DownloadUrl = "https://example.com/Gloam-1.11.0.zip" };
+            var release = ReleaseFor(Array.Empty<byte>()) with { DownloadUrl = "https://example.com/Gloam-1.11.0-setup.exe" };
 
             await Assert.ThrowsAsync<InvalidOperationException>(() => Service(handler).DownloadAsync(release));
 
@@ -261,16 +263,18 @@ namespace Gloam.Tests
         }
 
         [Fact]
-        public void IsInstallation_NeedsManifestAndInstallerBesideTheExe()
+        public void IsInstallation_NeedsTheSetupsUninstallerBesideTheExe()
         {
             string dir = Path.Combine(_tempDir, "app");
             Directory.CreateDirectory(dir);
             var service = new UpdateService(new HttpClient(new FakeHandler(_ => throw new InvalidOperationException())), dir, null);
 
             Assert.False(service.IsInstallation);
+            // What the zip-era installer left does not make a folder an installation.
             File.WriteAllText(Path.Combine(dir, "manifest.txt"), "");
-            Assert.False(service.IsInstallation);
             File.WriteAllText(Path.Combine(dir, "install.ps1"), "");
+            Assert.False(service.IsInstallation);
+            File.WriteAllText(Path.Combine(dir, "unins000.exe"), "");
             Assert.True(service.IsInstallation);
         }
 
@@ -281,19 +285,63 @@ namespace Gloam.Tests
             Directory.CreateDirectory(dir);
             var service = new UpdateService(new HttpClient(new FakeHandler(_ => throw new InvalidOperationException())), dir, null);
 
-            Assert.Throws<InvalidOperationException>(() => service.StartInstaller("x.zip", ValidSha));
+            Assert.Throws<InvalidOperationException>(() => service.StartInstaller("x-setup.exe", ValidSha));
         }
 
         [Fact]
-        public void InstallerArguments_RunTheInstallationsOwnScriptOnTheCheckedPackage()
+        public void StartInstaller_SetupChangedSinceTheDownload_RunsNothing()
         {
-            string[] args = UpdateService.InstallerArguments(@"C:\Apps\Gloam", @"C:\Data\Updates\Gloam-1.11.0.zip", ValidSha, 4242);
+            // The download sits where the user's programs can write; what runs must be what
+            // was checked. The bytes here are not an executable, so a run would throw a
+            // Win32Exception rather than the hash's InvalidDataException.
+            string appDir = Path.Combine(_tempDir, "app");
+            Directory.CreateDirectory(appDir);
+            File.WriteAllText(Path.Combine(appDir, "unins000.exe"), "");
+            Directory.CreateDirectory(UpdateService.UpdatesDir);
+            string setup = Path.Combine(UpdateService.UpdatesDir, "Gloam-1.11.0-setup.exe");
+            File.WriteAllText(setup, "swapped");
+            var service = new UpdateService(new HttpClient(new FakeHandler(_ => throw new InvalidOperationException())), appDir, null);
 
-            Assert.Equal(@"C:\Apps\Gloam\install.ps1", args[Array.IndexOf(args, "-File") + 1]);
-            Assert.Equal(@"C:\Data\Updates\Gloam-1.11.0.zip", args[Array.IndexOf(args, "-Package") + 1]);
-            Assert.Equal(ValidSha, args[Array.IndexOf(args, "-Sha256") + 1]);
-            Assert.Equal("4242", args[Array.IndexOf(args, "-WaitPid") + 1]);
-            Assert.Contains("-Launch", args);
+            Assert.Throws<InvalidDataException>(() => service.StartInstaller(setup, ValidSha));
+        }
+
+        [Fact]
+        public void SetupArguments_RunSilentlyAndStartGloamAgain()
+        {
+            string[] args = UpdateService.SetupArguments(@"C:\Data\Updates\Gloam-setup.log");
+
+            Assert.Contains("/SILENT", args);
+            Assert.Contains("/SUPPRESSMSGBOXES", args);
+            Assert.Contains("/NORESTART", args);
+            // installer\Gloam.iss reads {param:relaunch}: without it, a setup that finds the
+            // tray already gone would not start it again.
+            Assert.Contains("/relaunch=1", args);
+            Assert.Contains(@"/LOG=C:\Data\Updates\Gloam-setup.log", args);
+        }
+
+        [Fact]
+        public void DeleteDownloadedSetups_LeavesTheSetupLog()
+        {
+            Directory.CreateDirectory(UpdateService.UpdatesDir);
+            string setup = Path.Combine(UpdateService.UpdatesDir, "Gloam-1.11.0-setup.exe");
+            string partial = setup + ".partial";
+            File.WriteAllText(setup, "setup");
+            File.WriteAllText(partial, "half");
+            File.WriteAllText(UpdateService.SetupLogPath, "log");
+
+            UpdateService.DeleteDownloadedSetups();
+
+            Assert.False(File.Exists(setup));
+            Assert.False(File.Exists(partial));
+            Assert.True(File.Exists(UpdateService.SetupLogPath));
+        }
+
+        [Fact]
+        public void DeleteDownloadedSetups_NoUpdatesFolder_IsANoOp()
+        {
+            Assert.False(Directory.Exists(UpdateService.UpdatesDir));
+
+            UpdateService.DeleteDownloadedSetups();
         }
 
         [Fact]
@@ -309,7 +357,7 @@ namespace Gloam.Tests
 
         private static UpdateRelease ReleaseFor(byte[] payload)
             => new(new Version(1, 11, 0), "v1.11.0", "",
-                   $"{Prefix}v1.11.0/Gloam-1.11.0.zip",
+                   $"{Prefix}v1.11.0/Gloam-1.11.0-setup.exe",
                    Convert.ToHexString(SHA256.HashData(payload)).ToLowerInvariant(),
                    payload.Length);
 

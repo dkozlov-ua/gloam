@@ -6,7 +6,7 @@
 
     The release is what the tray's "Check for Updates" reads: the repository's
     LATEST release (not a draft, not a prerelease), tagged vX.Y.Z, carrying
-    Gloam-X.Y.Z.zip. The notes are docs\release-notes\vX.Y.Z.md. See RELEASE.md
+    Gloam-X.Y.Z-setup.exe. The notes are docs\release-notes\vX.Y.Z.md. See RELEASE.md
     for the whole runbook.
 
     It refuses - before building anything - unless:
@@ -84,23 +84,23 @@ if ($LASTEXITCODE -eq 0) { throw "release $tag already exists on $repo" }
 
 # ---- build ------------------------------------------------------------------
 & (Join-Path $RepoRoot 'package.ps1') -Version $Version
-$zip = Join-Path $RepoRoot "Releases\Gloam-$Version.zip"
-$sha256 = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+$setup = Join-Path $RepoRoot "Releases\Gloam-$Version-setup.exe"
+$sha256 = (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
 
 # ---- publish ----------------------------------------------------------------
 Write-Host "--- Publishing $tag to $repo at $($sha.Substring(0, 7)) ---"
-& gh release create $tag $zip --repo $repo --target $sha --title "Gloam $Version" --notes-file $notes --latest
+& gh release create $tag $setup --repo $repo --target $sha --title "Gloam $Version" --notes-file $notes --latest
 if ($LASTEXITCODE -ne 0) { throw "gh release create failed ($LASTEXITCODE)" }
 Invoke-Git fetch --quiet origin --tags | Out-Null
 
 # What the app will verify the download against is GitHub's own digest of the
-# asset; check that it is the zip that was built. Parsed here rather than with
+# asset; check that it is the setup that was built. Parsed here rather than with
 # gh's -q: Windows PowerShell 5.1 strips the double quotes inside a jq filter on
 # its way to a native command, and gh then rejects the filter.
 $assets = (& gh release view $tag --repo $repo --json assets | ConvertFrom-Json).assets
-$digest = @($assets | Where-Object { $_.name -eq "Gloam-$Version.zip" } | ForEach-Object { $_.digest })[0]
+$digest = @($assets | Where-Object { $_.name -eq "Gloam-$Version-setup.exe" } | ForEach-Object { $_.digest })[0]
 if ($digest -ne "sha256:$sha256") {
-    Write-Warning "GitHub reports the asset as '$digest', but the zip built here is sha256:$sha256"
+    Write-Warning "GitHub reports the asset as '$digest', but the setup built here is sha256:$sha256"
     exit 1
 }
 Write-Host "`nPublished Gloam ${Version}: https://github.com/$repo/releases/tag/$tag"

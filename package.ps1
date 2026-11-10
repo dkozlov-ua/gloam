@@ -1,5 +1,5 @@
 <#
-    package.ps1 - build a release package of Gloam.
+    package.ps1 - build the Gloam setup.
 
       .\package.ps1                     the <Version> in src\Gloam\Gloam.csproj
       .\package.ps1 -Version 1.2.0      another one (publish.ps1 passes it)
@@ -7,23 +7,19 @@
 
     Writes, under OutDir (Releases\ by default, gitignored):
 
-      Gloam-X.Y.Z\        the package, staged: what install.ps1 installs
-      Gloam-X.Y.Z.zip     the same, zipped - the one asset a GitHub release carries
+      Gloam-X.Y.Z\              the package, staged: what the setup installs
+      Gloam-X.Y.Z-setup.exe     the setup - the one asset a GitHub release carries
 
     WHAT GOES IN is a self-contained, multi-file `dotnet publish` of the app, the
     bundled ArgyllCMS (downloaded and checked against a pinned SHA-256), README,
-    LICENSE and THIRD_PARTY_NOTICES, and install.ps1. Two files are the package's
-    own:
-
-      VERSION        the version, one line - what install.ps1 reports
-      manifest.txt   every other file in the package, one relative path per line -
-                     what install.ps1 copies, and what the NEXT install reads to
-                     know which files are its own to replace or delete
+    LICENSE and THIRD_PARTY_NOTICES, compiled into a setup by Inno Setup 6 from
+    installer\Gloam.iss.
 
     The staged package is checked by scripts\Test-PublishOutput.ps1 (required
     files, then a launch smoke test against an isolated data folder) before the
-    manifest and the zip are written, so a package that cannot start is never
-    built.
+    setup is compiled, so a setup whose Gloam cannot start is never built.
+
+    NEEDS the .NET SDK and Inno Setup 6 (winget install JRSoftware.InnoSetup).
 #>
 param(
     [string]$Version = "",
@@ -111,6 +107,20 @@ function Download-Argyll {
     return $root
 }
 
+# The Inno Setup compiler: on PATH, or where its installer put it (per user or for everyone).
+function Find-Iscc {
+    $cmd = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    $keys = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1',
+            'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1',
+            'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1'
+    foreach ($key in $keys) {
+        $dir = (Get-ItemProperty -Path $key -ErrorAction SilentlyContinue).InstallLocation
+        if ($dir -and (Test-Path -LiteralPath (Join-Path $dir 'ISCC.exe'))) { return (Join-Path $dir 'ISCC.exe') }
+    }
+    throw 'Inno Setup 6 is not installed - winget install JRSoftware.InnoSetup'
+}
+
 function Get-PackageFiles([string]$Root) {
     $prefix = $Root.TrimEnd('\') + '\'
     return @(Get-ChildItem -LiteralPath $Root -Recurse -File -Force |
@@ -134,38 +144,35 @@ if ($Version -notmatch '^\d+\.\d+\.\d+$') {
     throw "Version '$Version' is not X.Y.Z - Check for Updates compares releases by those three numbers and nothing else."
 }
 
+$iscc = Find-Iscc
 $OutDir = Resolve-RepoChildPath $OutDir "Output directory"
 $name = "Gloam-$Version"
 $stage = Remove-RepoChildDirectoryIfExists (Join-Path $OutDir $name) "Package staging directory"
-$zip = Join-Path $OutDir "$name.zip"
+$setup = Join-Path $OutDir "$name-setup.exe"
 $argyllZip = Resolve-RepoChildPath $argyllZip "Argyll cache archive"
 $argyllExtractDir = Resolve-RepoChildPath $argyllExtractDir "Argyll extract directory"
 
 # 1. Publish self-contained and MULTI-FILE, straight into the staging folder. Multi-file
-#    rather than PublishSingleFile: the bundled ArgyllCMS tools, the ICM templates and
-#    install.ps1 sit beside Gloam.exe anyway, and a single-file host extracts its native
-#    parts to a temp folder on every launch.
+#    rather than PublishSingleFile: the bundled ArgyllCMS tools and the ICM templates sit
+#    beside Gloam.exe anyway, and a single-file host extracts its native parts to a temp
+#    folder on every launch.
 Write-Host "--- Publishing (self-contained, multi-file) v$Version ---"
 dotnet publish $projectPath -c Release -r win-x64 --self-contained true --output $stage `
     /p:Version=$Version `
     /p:DebugType=None
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed ($LASTEXITCODE)" }
 
-# 2. Bundle docs, ArgyllCMS and the installer. (ICM templates are already copied to the
-#    output by the csproj.)
+# 2. Bundle docs and ArgyllCMS. (ICM templates are already copied to the output by the
+#    csproj.)
 Copy-Item -LiteralPath (Join-Path $repoRoot "README.md") -Destination $stage
 Copy-Item -LiteralPath (Join-Path $repoRoot "LICENSE.txt") -Destination $stage
 Copy-Item -LiteralPath (Join-Path $repoRoot "THIRD_PARTY_NOTICES.txt") -Destination $stage
-Copy-Item -LiteralPath (Join-Path $repoRoot "install.ps1") -Destination $stage
 
 $argyllRoot = Download-Argyll
 $bundleRoot = Join-Path $stage "argyll_cache\$argyllVersion"
 Write-Host "Bundling $argyllVersion from $argyllRoot"
 New-Item -ItemType Directory -Path (Split-Path $bundleRoot) -Force | Out-Null
 Copy-Item -LiteralPath $argyllRoot -Destination $bundleRoot -Recurse
-
-$utf8 = New-Object Text.UTF8Encoding($false)
-[IO.File]::WriteAllText((Join-Path $stage "VERSION"), "$Version`n", $utf8)
 
 # 3. Does it start. The launch smoke runs Gloam.exe from the staging folder, so the
 #    file list is taken before it and must be the same after: anything the smoke
@@ -178,14 +185,14 @@ if ($extra.Count -gt 0) {
     throw "The launch smoke changed the package's files:`n$($extra -join "`n")"
 }
 
-# 4. The manifest, then the zip.
-[IO.File]::WriteAllText((Join-Path $stage "manifest.txt"), (($files -join "`n") + "`n"), $utf8)
-
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
-[IO.Compression.ZipFile]::CreateFromDirectory($stage, $zip, [IO.Compression.CompressionLevel]::Optimal, $false)
-$sha = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+# 4. The setup.
+Write-Host "--- Compiling $name-setup.exe ---"
+if (Test-Path -LiteralPath $setup) { Remove-Item -LiteralPath $setup -Force }
+& $iscc /Q "/DVersion=$Version" "/DSourceDir=$stage" "/O$OutDir" (Join-Path $repoRoot "installer\Gloam.iss")
+if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($LASTEXITCODE)" }
+if (-not (Test-Path -LiteralPath $setup -PathType Leaf)) { throw "ISCC did not write $setup" }
+$sha = (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
 
 Write-Host "`nPackaged $name ($($files.Count) files)"
-Write-Host "  $zip"
+Write-Host "  $setup"
 Write-Host "  sha256 $sha"

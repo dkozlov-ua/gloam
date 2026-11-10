@@ -13,7 +13,7 @@ Turn HDR on in Windows and SDR content goes flat and milky, because Windows pres
 
 ## Quick start
 
-1. Download `Gloam-X.Y.Z.zip` from the [latest release](https://github.com/dkozlov-ua/gloam/releases/latest), unzip it, and run `powershell -ExecutionPolicy Bypass -File install.ps1` in the unzipped folder. Per-user install, no administrator prompt.
+1. Download `Gloam-X.Y.Z-setup.exe` from the [latest release](https://github.com/dkozlov-ua/gloam/releases/latest) and run it. Per-user install, no administrator prompt.
 2. Right-click the Gloam icon in the system tray.
 3. Pick **Gamma 2.2** for the monitor you want to fix.
 
@@ -36,20 +36,17 @@ That is the whole fix. Everything below is optional.
 
 ## Install
 
-Each release carries one asset, `Gloam-X.Y.Z.zip`: a self-contained build with ArgyllCMS bundled.
+Each release carries one asset, `Gloam-X.Y.Z-setup.exe`: the setup for a self-contained build with ArgyllCMS bundled. Download it from the [latest release](https://github.com/dkozlov-ua/gloam/releases/latest) and run it.
 
-1. Download it from the [latest release](https://github.com/dkozlov-ua/gloam/releases/latest) and unzip it.
-2. Run `powershell -ExecutionPolicy Bypass -File install.ps1` in the unzipped folder.
+Gloam installs into `%LOCALAPPDATA%\Programs\Gloam`, a fixed folder that every update replaces in place, and adds **Gloam** to the Start menu and to Settings > Apps > Installed apps. No administrator prompt.
 
-Gloam installs into `%LOCALAPPDATA%\Programs\Gloam`, a fixed folder that every update replaces in place, and adds **Gloam** to the Start menu. No administrator prompt.
+**Check for Updates** in the tray menu asks GitHub for the latest release. When that release is newer, Gloam shows its notes and offers **Install**. Install downloads the setup, checks it against the SHA-256 that GitHub publishes for it, closes Gloam, runs the setup, and starts Gloam again. Nothing is checked unless you ask.
 
-**Check for Updates** in the tray menu asks GitHub for the latest release. When that release is newer, Gloam shows its notes and offers **Install**. Install downloads the zip, checks it against the SHA-256 that GitHub publishes for it, closes Gloam, puts the new files into the same folder, and starts Gloam again. Nothing is checked unless you ask.
-
-To uninstall, run `powershell -ExecutionPolicy Bypass -File "%LOCALAPPDATA%\Programs\Gloam\install.ps1" -Uninstall`. Settings and calibration data in `%LOCALAPPDATA%\Gloam` are kept.
+To uninstall, use Settings > Apps > Installed apps. Settings and calibration data in `%LOCALAPPDATA%\Gloam` are kept.
 
 Release notes, checksums and older versions: https://github.com/dkozlov-ua/gloam/releases
 
-Releases are not code-signed. `install.ps1` removes the downloaded-file mark from everything it installs, so SmartScreen does not stop `Gloam.exe` or the bundled ArgyllCMS tools.
+Releases are not code-signed, so SmartScreen may stop a setup downloaded through a browser: choose **More info**, then **Run anyway**. Updates installed from the tray are not affected.
 
 ## Use
 
@@ -145,7 +142,7 @@ cd gloam
 dotnet run --project src/Gloam
 ```
 
-Package locally:
+Build the setup locally (needs [Inno Setup 6](https://jrsoftware.org/isinfo.php): `winget install JRSoftware.InnoSetup`):
 
 ```powershell
 .\package.ps1 -Version X.Y.Z

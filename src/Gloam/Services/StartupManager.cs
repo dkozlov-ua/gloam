@@ -7,13 +7,14 @@ namespace Gloam.Services
 {
     public static class StartupManager
     {
-        private const string AppName = "Gloam";
+        // installer\Gloam.iss deletes this value on uninstall: InstallerScriptTests pins the two.
+        internal const string AppName = "Gloam";
         // Pre-rebrand Run-key value name; pointed at HDRGammaController.exe, which no
         // longer exists after the rebrand, so it is migrated to the new name on sight.
         // This is a registry identity written by shipped builds - it must keep the
         // literal old name or stale entries survive and relaunch a legacy install.
         private const string LegacyAppName = "HDRGammaController";
-        private const string RegistryPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+        internal const string RegistryPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
 
         /// <summary>
         /// Gets or sets whether the app is configured to start with Windows.

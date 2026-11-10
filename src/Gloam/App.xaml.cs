@@ -110,6 +110,7 @@ namespace Gloam
                 // install elsewhere) so boot never resurrects an old binary. Installations
                 // only: a dev run must not steal the registration.
                 StartupManager.RepairIfStale(updateService.IsInstallation);
+                UpdateService.DeleteDownloadedSetups();
 
                 // Repair legacy HDR profile characterization and, just as importantly,
                 // verify that Windows is consulting the list containing the saved profile.

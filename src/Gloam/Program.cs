@@ -21,6 +21,10 @@ namespace Gloam
         // static field so the GC does not collect it (and release the mutex) while we run.
         private static Mutex? _singleInstanceMutex;
 
+        // installer\Gloam.iss waits on this name for Gloam to exit before it replaces the
+        // files: InstallerScriptTests pins the two.
+        internal const string SingleInstanceMutexName = "Local\\Gloam-SingleInstance";
+
         /// <summary>
         /// The <c>--profile-set</c> choice handed to a tray that a script's launch started.
         /// App.OnStartup persists it before the tray's coordinator reads the selection.
@@ -44,7 +48,7 @@ namespace Gloam
             // settings.json, so a second instance (manual launch, "start with Windows" race, or
             // an update's relaunch while the old process is still exiting) must bow out. The "Local\" prefix scopes the mutex to
             // the current login session, which is what we want for a per-user tray app.
-            _singleInstanceMutex = new Mutex(initiallyOwned: true, name: "Local\\Gloam-SingleInstance", out bool createdNew);
+            _singleInstanceMutex = new Mutex(initiallyOwned: true, name: SingleInstanceMutexName, out bool createdNew);
             if (!createdNew)
             {
                 if (profileCommand.Selection is { } selection)

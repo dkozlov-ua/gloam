@@ -155,9 +155,9 @@ includes `app.log`; the line to look for is
 | Measurement CSVs | `%LOCALAPPDATA%\Gloam\reports\measurements` |
 | Exported diagnostics bundles | `%LOCALAPPDATA%\Gloam\Diagnostics` |
 | Installation | `%LOCALAPPDATA%\Programs\Gloam` |
-| Installer log | `%TEMP%\Gloam-install.log` |
+| Update setup log | `%LOCALAPPDATA%\Gloam\Updates\Gloam-setup.log` |
 
-The two directories are separate on purpose: uninstalling Gloam removes the package's files
+The two directories are separate on purpose: uninstalling Gloam removes the installed files
 from `Programs\Gloam` and leaves `Gloam`, so an uninstall never destroys your calibration
 data.
 

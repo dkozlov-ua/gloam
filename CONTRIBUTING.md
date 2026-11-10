@@ -14,7 +14,7 @@ dotnet run --project src/Gloam
 You need the .NET 8 SDK. `global.json` pins it, so a newer major SDK will refuse rather
 than silently building against something else.
 
-Package a local installer:
+Build a local setup (needs Inno Setup 6: `winget install JRSoftware.InnoSetup`):
 
 ```powershell
 .\package.ps1 -Version X.Y.Z

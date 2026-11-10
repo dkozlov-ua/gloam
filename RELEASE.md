@@ -1,31 +1,38 @@
 # Release runbook
 
-Gloam ships as a zip on this repository's GitHub Releases. Its own `install.ps1` installs
-it into one fixed folder, and every later update replaces that folder in place. There is no
-CI release and no code signing: releases are built and published from a local checkout,
-the way [game-utils](https://github.com/dkozlov-ua/game-utils) does it.
+Gloam ships as an Inno Setup setup, `Gloam-X.Y.Z-setup.exe`, on this repository's GitHub
+Releases. It installs into one fixed folder, and every later setup replaces that folder in
+place. There is no CI release and no code signing: releases are built and published from a
+local checkout, the way [ups-tools](https://github.com/dkozlov-ua/ups-tools) does it.
+
+Building needs the .NET SDK and Inno Setup 6 (`winget install JRSoftware.InnoSetup`).
 
 ## How it fits together
 
-- **`package.ps1`** builds `Releases\Gloam-X.Y.Z\` (the staged package) and
-  `Releases\Gloam-X.Y.Z.zip`. The package holds a self-contained, multi-file `dotnet publish`
-  of `src\Gloam`, the bundled ArgyllCMS (checked against a pinned SHA-256), README, LICENSE,
-  THIRD_PARTY_NOTICES and `install.ps1`. It adds `VERSION` and `manifest.txt`, which lists
-  every file in the package. `scripts\Test-PublishOutput.ps1` checks the staged folder,
-  including a launch smoke test, before the zip is written.
+- **`package.ps1`** stages `Releases\Gloam-X.Y.Z\` (a self-contained, multi-file
+  `dotnet publish` of `src\Gloam`, the bundled ArgyllCMS checked against a pinned SHA-256,
+  README, LICENSE and THIRD_PARTY_NOTICES), checks it with `scripts\Test-PublishOutput.ps1`
+  (including a launch smoke test), then compiles `installer\Gloam.iss` over it into
+  `Releases\Gloam-X.Y.Z-setup.exe`.
 - **`publish.ps1`** checks that the release can go out, runs `package.ps1`, creates the
   release with `gh release create` (which also creates the tag on GitHub), and confirms that
-  GitHub's SHA-256 of the asset matches the zip it built.
-- **`install.ps1`** ships inside the package. Run from an unzipped package, it installs into
-  `%LOCALAPPDATA%\Programs\Gloam` (or `-InstallDir`) and adds a *Gloam* shortcut to the
-  Start menu. `-Package <zip> -Sha256 <hex>` is the update path, and `-Uninstall` removes an
+  GitHub's SHA-256 of the asset matches the setup it built.
+- **`installer\Gloam.iss`** installs per user, with no administrator prompt, into
+  `%LOCALAPPDATA%\Programs\Gloam`, and adds a *Gloam* Start menu shortcut and an entry in
+  Settings > Apps > Installed apps. Before it replaces files it waits for a running Gloam to
+  exit (on its single-instance mutex); run by hand, it asks you to exit Gloam from the tray.
+  Uninstalling also removes the Start with Windows registration when it points into the
   installation. Its header has the details.
 - **Tray → Check for Updates** reads the repository's latest release. It offers the release
   when the `vX.Y.Z` tag is newer than the running version and the release carries
-  `Gloam-X.Y.Z.zip` with a GitHub digest. *Install* downloads the zip into
-  `%LOCALAPPDATA%\Gloam\Updates`, checks it against that SHA-256, and hands it to the
-  installation's own `install.ps1`. Then Gloam exits. The installer checks the hash again,
-  replaces the files **in the same folder**, and starts Gloam again. See `UpdateService`.
+  `Gloam-X.Y.Z-setup.exe` with a GitHub digest. *Install* downloads the setup into
+  `%LOCALAPPDATA%\Gloam\Updates`, checks it against that SHA-256, and runs it with
+  `/SILENT /SUPPRESSMSGBOXES /NORESTART /relaunch=1`. Then Gloam exits. The setup replaces the
+  files **in the same folder** and starts Gloam again. Its log is
+  `%LOCALAPPDATA%\Gloam\Updates\Gloam-setup.log`. See `UpdateService`.
+- **An installation** is a folder with the setup's `unins000.exe` beside `Gloam.exe`. Only an
+  installation updates itself or takes over the Start with Windows registration; a dev run is
+  told to install the release instead.
 
 The repository the app checks is `UpdateService.UpdateRepo`. `publish.ps1` refuses to
 publish anywhere else, because releases published elsewhere would never be found.
@@ -52,8 +59,9 @@ GitHub answers a private repository's release request with 404. The app says exa
    repository.
 6. Check it from an installed copy: *Check for Updates* in the tray should offer it.
 
-To try a package without publishing it, run `.\package.ps1`, then
-`Releases\Gloam-X.Y.Z\install.ps1 -InstallDir <scratch folder> -NoShortcut`.
+To try a setup without publishing it, run `.\package.ps1`, then run
+`Releases\Gloam-X.Y.Z-setup.exe`. It installs over this PC's installation, like an update.
+Inno Setup's standard switches work (`/SILENT`, `/VERYSILENT`, `/LOG=<file>`).
 
 ### Release notes
 
@@ -78,11 +86,10 @@ category of change where a user may want to re-run a calibration after updating.
 
 ## Installing for the first time
 
-1. Download `Gloam-X.Y.Z.zip` from the release and unzip it.
-2. `powershell -ExecutionPolicy Bypass -File install.ps1`
+Download `Gloam-X.Y.Z-setup.exe` from the release and run it. The setup isn't signed, so
+SmartScreen may ask first: *More info*, then *Run anyway*.
 
 The folder is `%LOCALAPPDATA%\Programs\Gloam` and stays that way, so the Start with Windows
 registration and the Start menu shortcut keep working across updates. Settings, calibration
 reports and logs are in `%LOCALAPPDATA%\Gloam`, separate from the installation, so neither
-an update nor an uninstall touches them. The installer's own log is
-`%TEMP%\Gloam-install.log`.
+an update nor an uninstall touches them. Uninstall from Settings > Apps > Installed apps.

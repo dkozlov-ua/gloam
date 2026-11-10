@@ -14,7 +14,7 @@ dotnet test src/Gloam.sln -c Release                                  # full sui
 dotnet test src/Gloam.sln -c Release --filter "FullyQualifiedName~LutGeneratorTests"   # one class
 dotnet test src/Gloam.sln -c Release --filter "FullyQualifiedName~LutGeneratorTests.MethodName"
 dotnet build src/Gloam.sln -c Release -p:GloamStrictBuild=true       # warnings-as-errors; must be clean
-.\package.ps1                                                        # release package: Releases\Gloam-X.Y.Z\ + .zip
+.\package.ps1                                                        # release setup: Releases\Gloam-X.Y.Z-setup.exe (needs Inno Setup 6)
 .\publish.ps1                                                        # package this commit and publish it as a GitHub release
 python scripts/build-whitepaper-md.py                                 # regenerate site/whitepaper.md from site/whitepaper.html
 ```
@@ -79,7 +79,7 @@ See `RELEASE.md`. There is no CI and no code signing: `publish.ps1` builds the r
 
 What the code relies on:
 
-- **An installation is one fixed folder**, `%LOCALAPPDATA%\Programs\Gloam` by default, and every update lands in the *same* folder, so the HKCU Run value and the Start menu shortcut never need repointing. `install.ps1 -Package` installs into the folder it is itself in, and it hands over to the **new** version's `install.ps1`.
-- **`manifest.txt` is the ownership record.** `package.ps1` writes it to list every file in the package. An install copies exactly those files, deletes what the *previous* manifest listed and this one does not, and touches nothing else. `UpdateService.IsInstallation` (`manifest.txt` + `install.ps1` beside `Gloam.exe`) is how the app tells an installation from a dev run. It gates self-update and taking over the Start with Windows registration.
-- **Updates happen on a click, never on a timer.** Tray → *Check for Updates* (`UpdateService`) offers the latest release only when its tag is `vX.Y.Z` and newer, and only when it carries `Gloam-X.Y.Z.zip` served from under `UpdateService.DownloadUrlPrefix` with a GitHub `sha256:` digest. The app checks the download, and `install.ps1` checks its own copy again. `publish.ps1` refuses an `UpdateRepo` that is not the repository it publishes to. The check sends no token, so the repository must be public.
-- `install.ps1` is read by Windows PowerShell 5.1 in the ANSI codepage: keep it ASCII. `InstallScriptTests` drives it for real, against temp folders.
+- **The release is an Inno Setup 6 setup**, `Gloam-X.Y.Z-setup.exe`, compiled by `package.ps1` from `installer\Gloam.iss` over the staged `dotnet publish` + ArgyllCMS folder. It installs per user (no elevation) into one fixed folder, `%LOCALAPPDATA%\Programs\Gloam`, and every update lands in the *same* folder, so the HKCU Run value and the Start menu shortcut never need repointing. Never change the `.iss` `AppId`.
+- **`unins000.exe` beside `Gloam.exe` marks an installation.** `UpdateService.IsInstallation` checks it to tell an installation from a dev run. It gates self-update and taking over the Start with Windows registration.
+- **Updates happen on a click, never on a timer.** Tray → *Check for Updates* (`UpdateService`) offers the latest release only when its tag is `vX.Y.Z` and newer, and only when it carries `Gloam-X.Y.Z-setup.exe` served from under `UpdateService.DownloadUrlPrefix` with a GitHub `sha256:` digest. The app checks the download, re-hashes it through a write-denying handle, runs it with `/SILENT /SUPPRESSMSGBOXES /NORESTART /relaunch=1 /LOG=...` and exits. The setup waits on the single-instance mutex for Gloam to exit and starts it again. `publish.ps1` refuses an `UpdateRepo` that is not the repository it publishes to. The check sends no token, so the repository must be public.
+- `installer\Gloam.iss` repeats app identities in Pascal (mutex name, `/relaunch` switch, Run value). `InstallerScriptTests` pins them to the C# constants. Keep the `.iss` ASCII.

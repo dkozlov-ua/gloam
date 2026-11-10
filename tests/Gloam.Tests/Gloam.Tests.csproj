@@ -35,9 +35,9 @@
     <None Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
-  <!-- InstallScriptTests run the real installer from the test output. -->
+  <!-- InstallerScriptTests pin the setup script against the app's own identities. -->
   <ItemGroup>
-    <None Include="..\..\install.ps1" Link="install.ps1" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\installer\Gloam.iss" Link="Gloam.iss" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

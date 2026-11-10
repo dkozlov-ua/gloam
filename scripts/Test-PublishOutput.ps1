@@ -115,8 +115,6 @@ $requiredFiles = @(
     "README.md",
     "LICENSE.txt",
     "THIRD_PARTY_NOTICES.txt",
-    "install.ps1",
-    "VERSION",
     "srgb_to_gamma2p2_100_mhc2.icm",
     "srgb_to_gamma2p2_200_mhc2.icm",
     "srgb_to_gamma2p2_300_mhc2.icm",

@@ -20,20 +20,21 @@ namespace Gloam.Services
     /// Nothing is checked by itself. "Check for Updates" in the tray asks GitHub for the
     /// repository's latest release (<see cref="UpdateRepo"/>; a draft or a prerelease is never
     /// "latest") and compares its vX.Y.Z tag with the running version. A newer one is offered
-    /// with its notes, and Install downloads its Gloam-X.Y.Z.zip, checks it against the SHA-256
-    /// GitHub itself publishes for the asset (its "digest"; a release without one is not
-    /// offered), and hands it to install.ps1 BESIDE Gloam.exe. That script waits for this
-    /// process to exit, puts the new version's files into this same folder and starts Gloam
-    /// again. The folder never moves, so the Start with Windows registration and the Start
-    /// menu shortcut never need repointing. See install.ps1 and RELEASE.md.
+    /// with its notes, and Install downloads its Gloam-X.Y.Z-setup.exe, checks it against the
+    /// SHA-256 GitHub itself publishes for the asset (its "digest"; a release without one is
+    /// not offered), and runs it silently. The setup (installer\Gloam.iss) waits for this
+    /// process to exit, puts the new version's files into the installation's folder and starts
+    /// Gloam again. The folder never moves, so the Start with Windows registration and the
+    /// Start menu shortcut never need repointing. See RELEASE.md.
     ///
-    /// The package is fetched only from under <see cref="DownloadUrlPrefix"/>, whatever the
-    /// answer names, and install.ps1 checks the hash again on a copy of its own, because the
-    /// download sits in the data folder, where the user's programs can write.
+    /// The setup is fetched only from under <see cref="DownloadUrlPrefix"/>, whatever the
+    /// answer names. It sits in the data folder, where the user's programs can write, so it is
+    /// hashed again through a handle that denies writers, and started while that handle is
+    /// still open: what runs is what was checked.
     ///
-    /// Only an INSTALLATION updates itself: a folder with the install.ps1 and manifest.txt a
-    /// package carries. A dev run (F5, dotnet run) can check, and is told to install the
-    /// release instead.
+    /// Only an INSTALLATION updates itself: a folder the setup installed, which it marks with
+    /// its uninstaller beside Gloam.exe. A dev run (F5, dotnet run) can check, and is told to
+    /// install the release instead.
     ///
     /// The request sends no token, so the repository must be public. A private one answers
     /// 404, which is reported as such rather than as "there is no release".
@@ -49,9 +50,17 @@ namespace Gloam.Services
         internal const string DownloadUrlPrefix = "https://github.com/" + UpdateRepo + "/releases/download/";
         internal const string ReleasesPageUrl = "https://github.com/" + UpdateRepo + "/releases";
 
-        // The files package.ps1 puts beside Gloam.exe that make a folder an installation.
-        internal const string ManifestFileName = "manifest.txt";
-        internal const string InstallerFileName = "install.ps1";
+        // What the setup leaves beside Gloam.exe: the mark of an installation. Inno Setup
+        // numbers it past 000 only when another app's uninstaller shares the folder, which
+        // the setup's own fixed folder never does.
+        internal const string UninstallerFileName = "unins000.exe";
+
+        // Inno Setup's own command line, plus /relaunch=1, which the setup reads as "start
+        // Gloam afterwards": by the time it looks, this process may already be gone, so it
+        // cannot tell from the single-instance mutex that Gloam was running. /SILENT rather
+        // than /VERYSILENT: the user just clicked Install, and its progress window says the
+        // update is happening while the tray icon is gone.
+        internal const string RelaunchSwitch = "/relaunch=1";
 
         private static readonly HttpClient SharedClient = CreateClient(new HttpClientHandler());
 
@@ -76,13 +85,11 @@ namespace Gloam.Services
         public string DisplayVersion => "v" + (CurrentVersion?.ToString(3) ?? "?");
 
         /// <summary>
-        /// True when Gloam runs from a folder install.ps1 owns, so it can update itself. Also
-        /// the gate for taking over the Start with Windows registration: a dev run must never
-        /// steal it from the real installation.
+        /// True when Gloam runs from a folder the setup installed, so it can update itself.
+        /// Also the gate for taking over the Start with Windows registration: a dev run must
+        /// never steal it from the real installation.
         /// </summary>
-        public bool IsInstallation =>
-            File.Exists(Path.Combine(_appDir, ManifestFileName)) &&
-            File.Exists(Path.Combine(_appDir, InstallerFileName));
+        public bool IsInstallation => File.Exists(Path.Combine(_appDir, UninstallerFileName));
 
         internal static HttpClient CreateClient(HttpMessageHandler handler)
         {
@@ -178,7 +185,7 @@ namespace Gloam.Services
             }
         }
 
-        internal static string PackageFileName(Version version) => $"Gloam-{version.ToString(3)}.zip";
+        internal static string PackageFileName(Version version) => $"Gloam-{version.ToString(3)}-setup.exe";
 
         private static UpdateCheckResult FindPackage(JsonElement root, string tag, Version version)
         {
@@ -223,7 +230,7 @@ namespace Gloam.Services
                 : null;
 
         /// <summary>
-        /// Downloads the release's package into the data folder's Updates directory and
+        /// Downloads the release's setup into the data folder's Updates directory and
         /// checks it against the release's SHA-256. Returns the path of the checked file;
         /// throws when the download fails or does not match.
         /// </summary>
@@ -282,41 +289,69 @@ namespace Gloam.Services
 
         internal static string UpdatesDir => Path.Combine(AppPaths.DataDir, "Updates");
 
+        /// <summary>The setup's own log of an update, beside the download.</summary>
+        internal static string SetupLogPath => Path.Combine(UpdatesDir, "Gloam-setup.log");
+
         /// <summary>
-        /// Starts this installation's install.ps1 on a checked package. It waits for this
-        /// process to exit, so the caller shuts the app down right after.
+        /// Runs a downloaded setup silently over this installation. The setup waits for this
+        /// process to exit, so the caller shuts the app down right after. Throws, starting
+        /// nothing, outside an installation or when the file no longer matches
+        /// <paramref name="sha256"/>.
         /// </summary>
-        public void StartInstaller(string packagePath, string sha256)
+        public void StartInstaller(string setupPath, string sha256)
         {
             if (!IsInstallation)
                 throw new InvalidOperationException($"{_appDir} is not an installation; it cannot update itself.");
 
-            var psi = new ProcessStartInfo
+            // Held, denying writers, from the hash until the setup has started: nothing can
+            // swap the file in between. Starting an exe only reads it, so the share allows it.
+            using (var held = new FileStream(setupPath, FileMode.Open, FileAccess.Read, FileShare.Read))
             {
-                FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),
-                    @"WindowsPowerShell\v1.0\powershell.exe"),
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WorkingDirectory = _appDir,
-            };
-            foreach (string arg in InstallerArguments(_appDir, packagePath, sha256, Environment.ProcessId))
-                psi.ArgumentList.Add(arg);
+                string actual = Convert.ToHexString(SHA256.HashData(held)).ToLowerInvariant();
+                if (!string.Equals(actual, sha256, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException($"{setupPath} has SHA-256 {actual}, not {sha256}; it was not run.");
 
-            using var process = Process.Start(psi)
-                ?? throw new InvalidOperationException("powershell.exe did not start.");
-            Log.Info($"UpdateService: started {InstallerFileName} (pid {process.Id}) for {packagePath}.");
+                var psi = new ProcessStartInfo(setupPath)
+                {
+                    UseShellExecute = false,
+                    WorkingDirectory = Path.GetDirectoryName(setupPath)!,
+                };
+                foreach (string arg in SetupArguments(SetupLogPath))
+                    psi.ArgumentList.Add(arg);
+
+                using var process = Process.Start(psi)
+                    ?? throw new InvalidOperationException($"{setupPath} did not start.");
+                Log.Info($"UpdateService: started {setupPath} (pid {process.Id}); its log is {SetupLogPath}.");
+            }
         }
 
-        internal static string[] InstallerArguments(string appDir, string packagePath, string sha256, int waitPid) =>
+        internal static string[] SetupArguments(string logPath) =>
         [
-            "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden",
-            "-File", Path.Combine(appDir, InstallerFileName),
-            "-Package", packagePath,
-            "-Sha256", sha256,
-            "-WaitPid", waitPid.ToString(CultureInfo.InvariantCulture),
-            "-Launch",
-            "-DeletePackage",
+            "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART",
+            RelaunchSwitch,
+            "/LOG=" + logPath,
         ];
+
+        /// <summary>
+        /// Deletes setups an earlier update downloaded. The setup that just updated this
+        /// installation may still be running (it starts Gloam before it exits) and is left for
+        /// the next start; anything that cannot be deleted is.
+        /// </summary>
+        public static void DeleteDownloadedSetups()
+        {
+            try
+            {
+                if (!Directory.Exists(UpdatesDir)) return;
+                foreach (string file in Directory.EnumerateFiles(UpdatesDir, "Gloam-*-setup.exe*"))
+                {
+                    try { File.Delete(file); }
+                    catch (IOException) { }
+                    catch (UnauthorizedAccessException) { }
+                }
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
 
         private static Version? RunningVersion()
         {
@@ -325,7 +360,7 @@ namespace Gloam.Services
         }
     }
 
-    /// <summary>A release that can be installed: its package, where it is and its SHA-256.</summary>
+    /// <summary>A release that can be installed: its setup, where it is and its SHA-256.</summary>
     public sealed record UpdateRelease(
         Version Version,
         string Tag,

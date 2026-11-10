@@ -265,7 +265,7 @@ namespace Gloam.ViewModels
                 {
                     ConfirmDialog.Info(owner, $"Gloam {version} is available",
                         $"This copy of Gloam ({AppVersion}) is not an installation, so it cannot update itself. " +
-                        $"Install the release from {UpdateService.ReleasesPageUrl}.");
+                        $"Run the release's setup from {UpdateService.ReleasesPageUrl}.");
                     return;
                 }
 
@@ -273,24 +273,24 @@ namespace Gloam.ViewModels
                     ? release.Notes[..MaxNotesLength].TrimEnd() + "\n\n..."
                     : release.Notes;
                 string message = (notes.Length > 0 ? notes + "\n\n" : "") +
-                    $"Install closes Gloam, replaces it with {version} and starts it again. " +
+                    $"Install downloads the {version} setup, closes Gloam, installs it and starts Gloam again. " +
                     $"Settings and calibration data are kept.";
                 if (!ConfirmDialog.Confirm(owner, $"Gloam {version} is available", message,
                         confirmLabel: "Install", cancelLabel: "Later"))
                     return;
 
-                string package;
+                string setup;
                 var busy = BusyDialog.Open(owner, $"Downloading Gloam {version}...");
                 try
                 {
-                    package = await _updateService.DownloadAsync(release);
+                    setup = await _updateService.DownloadAsync(release);
                 }
                 finally
                 {
                     busy.Dismiss();
                 }
 
-                _updateService.StartInstaller(package, release.Sha256);
+                _updateService.StartInstaller(setup, release.Sha256);
                 Log.Info($"TrayViewModel: installing {release.Tag}; exiting for the installer.");
                 Application.Current.Shutdown();
             }
