@@ -1,5 +1,4 @@
 using Gloam.Core;
-using Gloam.Core.Calibration;
 using Xunit;
 
 namespace Gloam.Tests;
@@ -30,25 +29,6 @@ public class HdrHighlightTests
     }
 
     [Theory]
-    [InlineData(2.2)]
-    [InlineData(2.4)]
-    public void MeasuredResponse_DoesNotCompressUnmeasuredHdrHeadroom(double gamma)
-    {
-        const double white = 200.0;
-        var display = new DisplayCharacterization
-        {
-            PeakLuminance = white,
-            BlackLevel = 0.0,
-            MeasuredGamma = 2.2
-        };
-        var lut = LutGenerator.GenerateCalibratedLut(
-            gamma, display, CalibrationSettings.Default, white, isHdr: true);
-
-        foreach (var channel in new[] { lut.R, lut.G, lut.B, lut.Grey })
-            AssertHighlightIdentity(channel, white);
-    }
-
-    [Theory]
     [InlineData(GammaMode.WindowsDefault, false)]
     [InlineData(GammaMode.Gamma22, false)]
     [InlineData(GammaMode.Gamma24, false)]
@@ -60,7 +40,7 @@ public class HdrHighlightTests
         const double white = 200.0;
         foreach (double brightness in new[] { 10.0, 50.0, 80.0 })
         {
-            var lut = LutGenerator.GenerateLut(mode, white, new CalibrationSettings
+            var lut = LutGenerator.GenerateLut(mode, white, new DisplayAdjustments
             {
                 Brightness = brightness,
                 UseLinearBrightness = linearDimming
@@ -70,7 +50,7 @@ public class HdrHighlightTests
                 double nits = TransferFunctions.PqEotf(i / 1023.0);
                 if (nits < white) continue;
 
-                double expected = ColorAdjustments.ApplyDimmingNits(nits, brightness, white, linearDimming);
+                double expected = ToneAdjustments.ApplyDimmingNits(nits, brightness, white, linearDimming);
                 double actual = TransferFunctions.PqEotf(lut.R[i]);
                 Assert.True(Math.Abs(actual - expected) <= Math.Max(1e-8, expected * 1e-9),
                     $"{mode}, {brightness}%: {nits:F3} nits became {actual:F3}, expected {expected:F3}");
@@ -84,7 +64,7 @@ public class HdrHighlightTests
     [InlineData(GammaMode.Gamma24)]
     public void ShadowOnlyAdjustment_LeavesHdrHighlightsUntouched(GammaMode mode)
     {
-        var lut = LutGenerator.GenerateLut(mode, 200.0, new CalibrationSettings
+        var lut = LutGenerator.GenerateLut(mode, 200.0, new DisplayAdjustments
         {
             ShadowDetailStrength = 0.55,
             ShadowDetailPivot = 0.10

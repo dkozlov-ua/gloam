@@ -4,16 +4,12 @@
   "collect_command": "dotnet test src/Gloam.sln -c Release --nologo --list-tests",
   "warn_command": "dotnet build src/Gloam.sln -c Release --no-incremental --nologo",
   "golden_paths": [
-    "tests/Gloam.Tests/Fixtures/Golden/**/*.json",
-    "tests/Gloam.Tests/Fixtures/Golden/**/*.csv",
     "tests/**/*.verified.*"
   ],
   "source_globs": [
     "src/**/*.cs",
     "tests/**/*.cs",
     "gen-srgb-to-gamma-lut/**/*.cs",
-    "site/**/*.js",
-    "site/**/*.ts",
     "scripts/**/*.ps1"
   ],
   "exclude_globs": [

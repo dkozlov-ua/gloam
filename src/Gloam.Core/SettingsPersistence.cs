@@ -13,8 +13,7 @@ namespace Gloam.Core
             SettingsManager.SettingsData Data,
             bool FileExists,
             bool ParseFailed,
-            bool NewerSchema,
-            bool MigratedLegacy);
+            bool NewerSchema);
 
         internal static LoadResult Load(string path, long maximumBytes, int currentSchemaVersion)
         {
@@ -22,12 +21,11 @@ namespace Gloam.Core
             bool fileExists = File.Exists(path);
             bool parseFailed = false;
             bool newerSchema = false;
-            bool migratedLegacy = false;
 
             try
             {
                 if (!fileExists)
-                    return new LoadResult(new SettingsManager.SettingsData(), false, false, false, false);
+                    return new LoadResult(new SettingsManager.SettingsData(), false, false, false);
                 if (new FileInfo(path).Length > maximumBytes)
                     throw new InvalidDataException("settings.json exceeds the size limit.");
 
@@ -48,29 +46,9 @@ namespace Gloam.Core
                             newerSchema |= number > currentSchemaVersion;
                     }
 
-                    // Only the old string exclusion list needs conversion. Rebuilding the
-                    // entire document from a legacy DTO silently drops every other setting.
-                    bool convertedLegacy = false;
-                    foreach (var property in root.ToList())
-                    {
-                        if (!property.Key.Equals(nameof(SettingsManager.SettingsData.ExcludedApps),
-                                StringComparison.OrdinalIgnoreCase) || property.Value is not JsonArray apps)
-                            continue;
-                        for (int i = 0; i < apps.Count; i++)
-                        {
-                            if (apps[i] is JsonValue value && value.TryGetValue<string>(out string? appName))
-                            {
-                                apps[i] = new JsonObject { [nameof(AppExclusionRule.AppName)] = appName };
-                                convertedLegacy = true;
-                            }
-                        }
-                    }
-
                     loaded = root.Deserialize<SettingsManager.SettingsData>(options)
                         ?? throw new JsonException("Settings must be a JSON object.");
-                    SettingsMigration.Apply(loaded);
                     SettingsNormalization.Validate(loaded);
-                    migratedLegacy = convertedLegacy;
                 }
                 catch (Exception ex)
                 {
@@ -91,8 +69,7 @@ namespace Gloam.Core
                 loaded ?? new SettingsManager.SettingsData(),
                 fileExists,
                 parseFailed,
-                newerSchema,
-                migratedLegacy);
+                newerSchema);
         }
 
         internal static string Serialize(SettingsManager.SettingsData data) =>

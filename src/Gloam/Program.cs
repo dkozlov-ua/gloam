@@ -5,7 +5,6 @@ using System.Linq;
 using System.Threading;
 using Gloam.Core;
 using Gloam.Services;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Gloam
 {
@@ -22,19 +21,32 @@ namespace Gloam
         private static Mutex? _singleInstanceMutex;
 
         // installer\Gloam.iss waits on this name for Gloam to exit before it replaces the
-        // files: InstallerScriptTests pins the two.
+        // files: InstallerScriptTests pins the two. A named AppProfile appends its suffix.
         internal const string SingleInstanceMutexName = "Local\\Gloam-SingleInstance";
+
+        // Set by a second plain launch: the running tray opens its window.
+        private static string ShowSignalName => $"Local\\Gloam{AppProfile.Suffix}-Show";
+
+        /// <summary>The running tray's "open the window" signal; null if it could not be made.</summary>
+        internal static EventWaitHandle? ShowSignal { get; private set; }
+
+        /// <summary>
+        /// True when this launch starts in the tray without opening the window: at logon
+        /// (<see cref="StartupManager.BackgroundArgument"/>), after an update, or for a
+        /// <c>--profile-set</c> launch's tray.
+        /// </summary>
+        internal static bool StartsInBackground { get; private set; }
 
         /// <summary>
         /// The <c>--profile-set</c> choice handed to a tray that a script's launch started.
-        /// App.OnStartup persists it before the tray's coordinator reads the selection.
+        /// App.OnStartup persists it before the displays are first applied.
         /// </summary>
         internal static DisplayProfileSelection? StartupProfileSelection { get; private set; }
 
         [STAThread]
         public static int Main(string[] args)
         {
-            if (IsLaunchSmoke(args))
+            if (HasArgument(args, "--smoke"))
                 return RunLaunchSmoke(args);
 
             ProfileCommand profileCommand = ProfileCommandLine.Parse(args);
@@ -46,13 +58,26 @@ namespace Gloam
 
             // Single-instance guard. Two trays would fight over the GPU gamma ramp and clobber
             // settings.json, so a second instance (manual launch, "start with Windows" race, or
-            // an update's relaunch while the old process is still exiting) must bow out. The "Local\" prefix scopes the mutex to
-            // the current login session, which is what we want for a per-user tray app.
-            _singleInstanceMutex = new Mutex(initiallyOwned: true, name: SingleInstanceMutexName, out bool createdNew);
+            // an update's relaunch while the old process is still exiting) must bow out. The
+            // "Local\" prefix scopes the mutex to the current login session, which is what we
+            // want for a per-user tray app.
+            _singleInstanceMutex = new Mutex(initiallyOwned: true, name: SingleInstanceMutexName + AppProfile.Suffix, out bool createdNew);
             if (!createdNew)
             {
                 if (profileCommand.Selection is { } selection)
                     return ForwardProfileCommand(selection);
+
+                // A plain second launch, such as the Start menu shortcut: open the window of
+                // the Gloam that is already running.
+                if (!HasArgument(args, StartupManager.BackgroundArgument))
+                {
+                    try
+                    {
+                        using var running = EventWaitHandle.OpenExisting(ShowSignalName);
+                        running.Set();
+                    }
+                    catch (Exception ex) { try { Log.Info($"Could not ask the running Gloam to open: {ex.Message}"); } catch { } }
+                }
                 try { Log.Info("Another instance is already running; exiting."); } catch { }
                 return 0;
             }
@@ -64,6 +89,9 @@ namespace Gloam
                 return StartTrayAndForward(coldSelection);
 
             StartupProfileSelection = profileCommand.Selection;
+            StartsInBackground = HasArgument(args, StartupManager.BackgroundArgument) || ProfileCommandLine.IsTrayLaunch(args);
+            ShowSignal = new EventWaitHandle(false, EventResetMode.AutoReset, ShowSignalName);
+
             var app = new App();
             app.InitializeComponent();
             return app.Run();
@@ -137,8 +165,8 @@ namespace Gloam
             _ => ProfileCommandLine.ExitInstanceUnreachable
         };
 
-        private static bool IsLaunchSmoke(string[] args)
-            => args.Any(a => string.Equals(a, "--smoke", StringComparison.OrdinalIgnoreCase));
+        private static bool HasArgument(string[] args, string name)
+            => args.Any(a => string.Equals(a, name, StringComparison.OrdinalIgnoreCase));
 
         private static int RunLaunchSmoke(string[] args)
         {
@@ -155,13 +183,12 @@ namespace Gloam
                 Log.Info("Launch smoke: starting.");
                 Log.Info($"Launch smoke: data dir = {AppPaths.DataDir}");
 
-                int extracted = ResourceExtractor.ExtractIcmProfiles();
-                Log.Info($"Launch smoke: ICM resource extraction checked ({extracted} updated).");
-
-                using var services = App.ConfigureServices();
-                _ = services.GetRequiredService<SettingsManager>();
-                _ = services.GetRequiredService<NightModeService>();
-                _ = services.GetRequiredService<ProfileManager>();
+                var (settings, monitors, apply) = App.CreateServices();
+                using (apply)
+                {
+                    _ = settings.ProfileSelection;
+                    Log.Info($"Launch smoke: {monitors.EnumerateMonitors().Count} display(s) enumerated.");
+                }
 
                 Log.Info("Launch smoke: service composition completed.");
                 Log.Info("Launch smoke: completed.");

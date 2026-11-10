@@ -18,16 +18,12 @@ namespace Gloam.Tests
             {
                 AppPaths.UseDataDirectoriesForCurrentProcess(tempDir, Path.Combine(tempDir, "roaming"));
 
-                var nightMode = new NightModeService(new NightModeSettings());
-                var apply = new GammaApplyService(new DispwinRunner(), new SettingsManager(), nightMode);
+                var apply = new GammaApplyService(new GammaRampWriter(new FakeGammaRamp()), new SettingsManager());
 
                 apply.Dispose();
-                nightMode.Dispose();
 
-                // App.OnExit disposes the DI container after TrayViewModel.Dispose has already
-                // stopped these singletons. This must be a no-op, not an ObjectDisposedException.
+                // A second shutdown path must be a no-op, not an ObjectDisposedException.
                 apply.Dispose();
-                nightMode.Dispose();
             }
             finally
             {

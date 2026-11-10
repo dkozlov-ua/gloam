@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using Gloam.Core;
-using Gloam.Core.Calibration;
 using Xunit;
 
 namespace Gloam.Tests
@@ -49,27 +48,6 @@ namespace Gloam.Tests
             }
             finally
             {
-                DeleteTempDir(dir);
-            }
-        }
-
-        [Fact]
-        public void ColorimeterLogPath_FollowsCurrentAppDataDirectory()
-        {
-            string originalData = AppPaths.DataDir;
-            string originalRoaming = AppPaths.RoamingDataDir;
-            string dir = CreateTempDir();
-            try
-            {
-                AppPaths.UseDataDirectoriesForCurrentProcess(dir, Path.Combine(dir, "roaming"));
-
-                Assert.Equal(
-                    Path.Combine(dir, "colorimeter.log"),
-                    ColorimeterService.GetLogFilePath());
-            }
-            finally
-            {
-                AppPaths.UseDataDirectoriesForCurrentProcess(originalData, originalRoaming);
                 DeleteTempDir(dir);
             }
         }

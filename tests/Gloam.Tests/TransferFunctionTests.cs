@@ -1,6 +1,5 @@
 using Xunit;
 using Gloam.Core;
-using Gloam.Core.Calibration;
 using System;
 
 namespace Gloam.Tests
@@ -118,40 +117,6 @@ namespace Gloam.Tests
             double roundTrip = TransferFunctions.Bt1886InverseEotf(luminance, white, black);
 
             Assert.Equal(signal, roundTrip, 10);
-        }
-
-        [Fact]
-        public void CalibrationTarget_Bt1886_DefaultBlack_PreservesPureGamma24Behavior()
-        {
-            double signal = 0.5;
-
-            Assert.Equal(
-                Math.Pow(signal, 2.4),
-                StandardTargets.Rec709Gamma24.ApplyEotf(signal),
-                10);
-        }
-
-        [Fact]
-        public void CalibrationTarget_Bt1886_NonzeroBlack_UsesBlackLevelAwareCurve()
-        {
-            var target = new CalibrationTarget
-            {
-                Name = "BT.1886 black-aware test",
-                RedPrimary = Chromaticity.Rec709Red,
-                GreenPrimary = Chromaticity.Rec709Green,
-                BluePrimary = Chromaticity.Rec709Blue,
-                WhitePoint = Chromaticity.D65,
-                TransferFunction = TransferFunctionType.Bt1886,
-                ReferenceWhite = 100.0,
-                BlackLevel = 0.1
-            };
-
-            Assert.Equal(0.001, target.ApplyEotf(0.0), 10);
-            Assert.Equal(1.0, target.ApplyEotf(1.0), 10);
-
-            double midLinear = target.ApplyEotf(0.5);
-            double roundTrip = target.ApplyOetf(midLinear);
-            Assert.Equal(0.5, roundTrip, 10);
         }
     }
 }

@@ -1,124 +1,116 @@
 using System;
-using Gloam.Core;
+using System.ComponentModel;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Interop;
 using Gloam.Interop;
 using Gloam.Services;
 using Gloam.ViewModels;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Gloam
 {
-    [System.Diagnostics.CodeAnalysis.SuppressMessage(
-        "Design", "CA1001:Types that own disposable fields should be disposable",
-        Justification = "WPF owns the window lifecycle; Cleanup disposes window-bound resources on close and application exit.")]
+    /// <summary>
+    /// The flyout: opens by the notification area, hides when it loses focus (or on Esc), and
+    /// is never closed while the app runs.
+    /// </summary>
     public partial class MainWindow : Window
     {
-        private TrayViewModel? _trayViewModel;
-        private bool _cleanedUp;
+        // A tray click first deactivates (and so hides) an open flyout, then arrives as a
+        // click. Within this long after hiding, a click means "close it", not "open it again".
+        private static readonly TimeSpan ReopenGuard = TimeSpan.FromMilliseconds(300);
 
-        public MainWindow()
+        private DateTime _hiddenAtUtc = DateTime.MinValue;
+        private bool _closing;
+
+        public MainWindow(MainViewModel viewModel)
         {
-            Log.Info("MainWindow: Constructor started.");
+            ArgumentNullException.ThrowIfNull(viewModel);
             InitializeComponent();
-            
-            // Set Icon from executable (requires net8.0-windows)
-            try {
-                string? exePath = Environment.ProcessPath;
-                if (!string.IsNullOrEmpty(exePath))
-                    MyNotifyIcon.Icon = System.Drawing.Icon.ExtractAssociatedIcon(exePath);
-            } catch (Exception ex) { Log.Info("MainWindow: Failed to set icon: " + ex.Message); }
+            DataContext = viewModel;
 
-            // Force Handle creation early
-            Log.Info("MainWindow: Ensuring Handle...");
-            var helper = new WindowInteropHelper(this);
-            helper.EnsureHandle(); 
-            
-            // ActivatorUtilities resolves the shared singletons from App.Services.
-            Log.Info("MainWindow: Initializing TrayViewModel...");
-            _trayViewModel = ActivatorUtilities.CreateInstance<TrayViewModel>(App.Services);
-            
-            // Route themed notifications. The old OS balloon is replaced by the in-app
-            // ToastWindow; NotificationRequested is the Core→app boundary so Core code can
-            // request a toast without depending on WPF.
-            var toast = App.Services.GetService(typeof(IToastService)) as IToastService;
-            _trayViewModel.NotificationRequested += (title, msg) =>
+            SourceInitialized += (_, _) => Dwm.TryRoundCorners(new WindowInteropHelper(this).Handle);
+
+            Deactivated += (_, _) => HideFlyout();
+            PreviewKeyDown += (_, e) =>
             {
-                toast?.Show(title, msg, ToastKind.Info);
+                if (e.Key == Key.Escape) HideFlyout();
             };
-            // Updates are handled directly by TrayViewModel as silent background downloads
-            // scheduled for the next app exit/restart, so there is no update event to route.
-
-            // Set DataContext for the specific bindings in XAML
-            MyNotifyIcon.DataContext = _trayViewModel;
-
-            // This window is never shown (it only hosts the tray icon + message loop), and
-            // the app uses OnExplicitShutdown, so OnClosed is not a reliable teardown hook.
-            // Application.Exit fires on Application.Shutdown() (the tray "Exit" command), so
-            // hook it to run the idempotent Cleanup - this is what makes service teardown and
-            // the pending-update apply-on-exit actually run.
-            if (Application.Current != null)
-                Application.Current.Exit += (_, _) => Cleanup();
-
-            // Hook message loop for system events (Display Change, Power)
-            HwndSource.FromHwnd(helper.Handle)!.AddHook(WndProc);
-            Log.Info("MainWindow: Constructor finished.");
         }
 
-        private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+        /// <summary>Opens the flyout, or closes it if it is open (a tray click).</summary>
+        public void Toggle()
         {
-            const int WM_DISPLAYCHANGE = 0x007E;
-            const int WM_POWERBROADCAST = 0x0218;
-            const int PBT_APMRESUMEAUTOMATIC = 0x0012;
-            const int WM_SETTINGCHANGE = 0x001A;
-
-            if (msg == WM_DISPLAYCHANGE)
+            if (IsVisible)
             {
-                 // Handle display change
-                 _trayViewModel?.HandleDisplayChange();
+                HideFlyout();
+                return;
             }
-            else if (msg == WM_POWERBROADCAST)
-            {
-                if (wParam.ToInt32() == PBT_APMRESUMEAUTOMATIC)
-                {
-                    _trayViewModel?.HandleResume();
-                }
-            }
-            else if (msg == WM_SETTINGCHANGE)
-            {
-                // The Windows light/dark toggle broadcasts WM_SETTINGCHANGE with
-                // lParam -> the wide string "ImmersiveColorSet". SystemEvents.UserPreferenceChanged
-                // often does NOT raise for this, which is what left the tray menu stuck on the
-                // appearance active at startup. Catch it here (this window's HWND is already
-                // hooked) and re-evaluate the OS theme.
-                if (lParam != IntPtr.Zero)
-                {
-                    string? area = System.Runtime.InteropServices.Marshal.PtrToStringUni(lParam);
-                    if (string.Equals(area, "ImmersiveColorSet", StringComparison.Ordinal))
-                        (Application.Current as App)?.RefreshThemeFromSystem();
-                }
-            }
-
-            return IntPtr.Zero;
-        }
-        
-        protected override void OnClosed(EventArgs e)
-        {
-            Cleanup();
-            base.OnClosed(e);
+            if (DateTime.UtcNow - _hiddenAtUtc < ReopenGuard) return;
+            ShowFlyout();
         }
 
-        /// <summary>
-        /// Idempotent teardown: disposes the tray view model (which stops the night-mode and
-        /// ramp-guard timers, unhooks the foreground-window hook, and applies any pending
-        /// update on the way out). Called from both OnClosed and the
-        /// Application.Exit handler; the guard makes a double-call a no-op.
-        /// </summary>
-        private void Cleanup()
+        public void ShowFlyout()
         {
-            if (_cleanedUp) return;
-            _cleanedUp = true;
-            _trayViewModel?.Dispose();
+            if (!IsVisible)
+            {
+                // Shown off-screen first: the size it lays out to decides where it goes, and it
+                // must not flash where it was last.
+                Left = -32000;
+                Top = -32000;
+                Show();
+                Place();
+            }
+            Activate();
+        }
+
+        public void HideFlyout()
+        {
+            if (!IsVisible) return;
+            _hiddenAtUtc = DateTime.UtcNow;
+            Hide();
+        }
+
+        /// <summary>Lets the window close: only when the app exits.</summary>
+        public void CloseForExit()
+        {
+            _closing = true;
+            Close();
+        }
+
+        protected override void OnClosing(CancelEventArgs e)
+        {
+            // Alt+F4 hides the flyout like any other way of dismissing it.
+            if (!_closing)
+            {
+                e.Cancel = true;
+                HideFlyout();
+            }
+            base.OnClosing(e);
+        }
+
+        private void Hide_Click(object sender, RoutedEventArgs e) => HideFlyout();
+
+        private void Place()
+        {
+            if (PresentationSource.FromVisual(this)?.CompositionTarget is not { } target) return;
+            var toDips = target.TransformFromDevice;
+
+            // The tray is on the primary monitor's taskbar.
+            IntPtr monitor = User32.MonitorFromPoint(default, 1 /* MONITOR_DEFAULTTOPRIMARY */);
+            Rect workArea = SystemParameters.WorkArea;
+            Rect bounds = new(0, 0, SystemParameters.PrimaryScreenWidth, SystemParameters.PrimaryScreenHeight);
+            if (User32.TryGetMonitorWorkArea(monitor, out var work) && User32.TryGetMonitorBounds(monitor, out var full))
+            {
+                workArea = new Rect(toDips.Transform(new Point(work.Left, work.Top)), toDips.Transform(new Point(work.Right, work.Bottom)));
+                bounds = new Rect(toDips.Transform(new Point(full.Left, full.Top)), toDips.Transform(new Point(full.Right, full.Bottom)));
+            }
+            Point anchor = FlyoutPlacement.TrayCorner(bounds, workArea);
+
+            MaxHeight = FlyoutPlacement.MaxHeight(workArea);
+            UpdateLayout();
+            Point position = FlyoutPlacement.Place(workArea, new Size(ActualWidth, ActualHeight), anchor);
+            Left = position.X;
+            Top = position.Y;
         }
     }
 }

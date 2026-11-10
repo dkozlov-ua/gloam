@@ -1,6 +1,5 @@
 using Xunit;
 using Gloam.Core;
-using Gloam.Core.Calibration;
 using System;
 using System.Linq;
 
@@ -9,58 +8,31 @@ namespace Gloam.Tests
     public class LutGeneratorTests
     {
         [Fact]
-        public void GenerateLut_NearbyTemperatures_DoNotAliasInCache()
+        public void GenerateLut_EveryAdjustment_IsPartOfTheCacheKey()
         {
+            // A cache key that missed a field returned another setting's LUT (the brightness
+            // or shadow slider then looked like a no-op until something else changed).
             LutGenerator.ClearCache();
-            var first = new CalibrationSettings { Temperature = -10.00 };
-            var second = new CalibrationSettings { Temperature = -9.98 };
-
-            var firstLut = LutGenerator.GenerateLut(GammaMode.WindowsDefault, 200, first, isHdr: false);
-            var secondLut = LutGenerator.GenerateLut(GammaMode.WindowsDefault, 200, second, isHdr: false);
-
-            Assert.NotSame(firstLut.R, secondLut.R);
-            Assert.NotEqual(firstLut.B[255], secondLut.B[255]);
-        }
-
-        [Fact]
-        public void GenerateLut_DifferentPerceptualStrength_DoNotAliasInCache()
-        {
-            LutGenerator.ClearCache();
-            // Same warm temperature, different Perceptual intensity — must produce different
-            // LUTs (the intensity slider was a no-op when this wasn't in the cache key).
-            var weak = new CalibrationSettings
+            var baseline = new DisplayAdjustments { Brightness = 75.0 };
+            var variants = new[]
             {
-                Algorithm = NightModeAlgorithm.Perceptual, Temperature = -30.0, PerceptualStrength = 0.5
-            };
-            var strong = new CalibrationSettings
-            {
-                Algorithm = NightModeAlgorithm.Perceptual, Temperature = -30.0, PerceptualStrength = 1.0
+                new DisplayAdjustments { Brightness = 74.0 },
+                new DisplayAdjustments { Brightness = 75.0, UseLinearBrightness = true },
+                new DisplayAdjustments { Brightness = 75.0, ShadowDetailStrength = 0.4 },
+                new DisplayAdjustments { Brightness = 75.0, ShadowDetailStrength = 0.4, ShadowDetailPivot = 0.2 },
             };
 
-            var weakLut = LutGenerator.GenerateLut(GammaMode.WindowsDefault, 200, weak, isHdr: false);
-            var strongLut = LutGenerator.GenerateLut(GammaMode.WindowsDefault, 200, strong, isHdr: false);
-
-            Assert.NotSame(weakLut.B, strongLut.B);
-            // Higher strength cuts blue harder → lower blue output near white.
-            Assert.True(strongLut.B[900] < weakLut.B[900],
-                $"strong blue {strongLut.B[900]:F4} should be below weak blue {weakLut.B[900]:F4}");
-        }
-
-        [Fact]
-        public void GenerateLut_TemperatureOffset_ComposesLikeTemperature()
-        {
-            LutGenerator.ClearCache();
-
-            var temperature = LutGenerator.GenerateLut(GammaMode.Gamma22, 200.0,
-                new CalibrationSettings { Temperature = -20.0 }, isHdr: false);
-            var offset = LutGenerator.GenerateLut(GammaMode.Gamma22, 200.0,
-                new CalibrationSettings { TemperatureOffset = -20.0 }, isHdr: false);
-
-            Assert.NotSame(temperature.R, offset.R);
-            Assert.Equal(temperature.R[768], offset.R[768], 12);
-            Assert.Equal(temperature.G[768], offset.G[768], 12);
-            Assert.Equal(temperature.B[768], offset.B[768], 12);
-            Assert.True(offset.B[768] < offset.R[768]);
+            var first = LutGenerator.GenerateLut(GammaMode.Gamma22, 200, baseline, isHdr: true);
+            var previousLut = first;
+            foreach (DisplayAdjustments variant in variants)
+            {
+                var lut = LutGenerator.GenerateLut(GammaMode.Gamma22, 200, variant, isHdr: true);
+                Assert.NotSame(previousLut.R, lut.R);
+                Assert.False(lut.R.SequenceEqual(previousLut.R),
+                    $"Brightness {variant.Brightness}, linear {variant.UseLinearBrightness}, shadow " +
+                    $"{variant.ShadowDetailStrength}/{variant.ShadowDetailPivot} reused the previous LUT.");
+                previousLut = lut;
+            }
         }
 
         [Fact]
@@ -88,64 +60,22 @@ namespace Gloam.Tests
         public void GenerateLut_InvalidSdrWhiteLevel_Throws(double sdrWhiteLevel)
         {
             Assert.Throws<ArgumentOutOfRangeException>(() =>
-                LutGenerator.GenerateLut(GammaMode.Gamma22, sdrWhiteLevel, CalibrationSettings.Default, isHdr: true));
-        }
-
-        [Theory]
-        [InlineData(0.0)]
-        [InlineData(4.1)]
-        [InlineData(double.NaN)]
-        public void GenerateCalibratedLut_InvalidTargetGamma_Throws(double targetGamma)
-        {
-            Assert.Throws<ArgumentOutOfRangeException>(() =>
-                LutGenerator.GenerateCalibratedLut(
-                    targetGamma,
-                    ValidCharacterization(),
-                    CalibrationSettings.Default,
-                    200.0,
-                    isHdr: false));
+                LutGenerator.GenerateLut(GammaMode.Gamma22, sdrWhiteLevel, DisplayAdjustments.Default, isHdr: true));
         }
 
         [Fact]
-        public void GenerateLut_NonFiniteCalibrationSettings_ProducesFiniteBoundedLut()
+        public void GenerateLut_NonFiniteAdjustments_ProducesFiniteBoundedLut()
         {
-            var corrupt = new CalibrationSettings
+            var corrupt = new DisplayAdjustments
             {
                 Brightness = double.NaN,
-                Temperature = double.PositiveInfinity,
-                Tint = double.NegativeInfinity,
-                RedGain = double.NaN,
-                GreenOffset = double.PositiveInfinity
+                ShadowDetailStrength = double.PositiveInfinity,
+                ShadowDetailPivot = double.NegativeInfinity,
             };
 
-            var (r, g, b, grey) = LutGenerator.GenerateLut(
-                GammaMode.Gamma22, 200.0, corrupt, isHdr: false);
-
-            foreach (double value in r.Concat(g).Concat(b).Concat(grey))
-            {
-                Assert.True(double.IsFinite(value));
-                Assert.InRange(value, 0.0, 1.0);
-            }
-        }
-
-        [Fact]
-        public void GenerateCalibratedLut_CorruptCharacterization_ProducesFiniteBoundedLuts()
-        {
-            var corrupt = ValidCharacterization();
-            corrupt.BlackLevel = double.NaN;
-            corrupt.PeakLuminance = double.PositiveInfinity;
-            corrupt.MeasuredGamma = double.NaN;
-            corrupt.RedToneCurve = ToneCurve.CreateFromArray(new[] { 0.0, double.NaN, 1.0 });
-            corrupt.GreenToneCurve = null!;
-            corrupt.BlueToneCurve = null!;
-
-            var sdr = LutGenerator.GenerateCalibratedLut(
-                2.2, corrupt, CalibrationSettings.Default, 200.0, isHdr: false);
-            var hdr = LutGenerator.GenerateCalibratedLut(
-                2.2, corrupt, new CalibrationSettings { Brightness = double.NaN }, 200.0, isHdr: true);
-
-            AssertFiniteBounded(sdr);
-            AssertFiniteBounded(hdr);
+            AssertFiniteBounded(LutGenerator.GenerateLut(GammaMode.Gamma22, 200.0, corrupt, isHdr: false));
+            AssertFiniteBounded(LutGenerator.GenerateLut(GammaMode.Gamma24, 200.0, corrupt, isHdr: true));
+            AssertFiniteBounded(LutGenerator.GenerateLut(GammaMode.WindowsDefault, 80.0, corrupt, isHdr: true));
         }
 
         [Fact]
@@ -189,7 +119,7 @@ namespace Gloam.Tests
             // produced an S-shape where dimmed SDR met undimmed HDR highlights.
             // With the dim-aware target the LUT must remain non-decreasing across
             // the full range, including the headroom region.
-            var cal = new CalibrationSettings { Brightness = 50.0 };
+            var cal = new DisplayAdjustments { Brightness = 50.0 };
             var lut = LutGenerator.GenerateLut(GammaMode.Gamma22, 200.0, cal);
             for (int i = 1; i < lut.R.Length; i++)
             {
@@ -205,9 +135,9 @@ namespace Gloam.Tests
             // peak — otherwise dimming is being undone by the headroom blend. This is
             // the core "highlights rolloff when dimming" regression.
             var undimmed = LutGenerator.GenerateLut(GammaMode.Gamma22, 200.0,
-                new CalibrationSettings { Brightness = 100.0 });
+                new DisplayAdjustments { Brightness = 100.0 });
             var dimmed = LutGenerator.GenerateLut(GammaMode.Gamma22, 200.0,
-                new CalibrationSettings { Brightness = 50.0 });
+                new DisplayAdjustments { Brightness = 50.0 });
 
             Assert.True(dimmed.R[1023] < undimmed.R[1023],
                 $"Dimming failed to reach headroom: peak undimmed={undimmed.R[1023]:F4} dimmed={dimmed.R[1023]:F4}");
@@ -224,7 +154,7 @@ namespace Gloam.Tests
             // When Brightness = 100%, the headroom target reduces to pure PQ identity,
             // so the peak code value must still land at 1.0 after the blend.
             var lut = LutGenerator.GenerateLut(GammaMode.Gamma22, 200.0,
-                new CalibrationSettings { Brightness = 100.0 });
+                new DisplayAdjustments { Brightness = 100.0 });
             Assert.Equal(1.0, lut.R[1023], 4);
             Assert.Equal(1.0, lut.G[1023], 4);
             Assert.Equal(1.0, lut.B[1023], 4);
@@ -237,7 +167,7 @@ namespace Gloam.Tests
             // should have a bounded first difference across the transition — no single
             // pair of adjacent samples should jump wildly compared to its neighbors.
             var lut = LutGenerator.GenerateLut(GammaMode.Gamma22, 200.0,
-                new CalibrationSettings { Brightness = 80.0, Temperature = -20.0 });
+                new DisplayAdjustments { Brightness = 80.0, ShadowDetailStrength = 0.5 });
 
             double maxDelta = 0;
             for (int i = 1; i < lut.R.Length; i++)
@@ -247,7 +177,7 @@ namespace Gloam.Tests
             }
             // Every step covers ~0.0977% of the input range; the LUT delta per step
             // shouldn't exceed an order of magnitude beyond that even under aggressive
-            // calibration.
+            // adjustments.
             Assert.True(maxDelta < 0.02,
                 $"Max LUT step was {maxDelta:F6}; a large jump suggests a discontinuity.");
         }
@@ -256,7 +186,7 @@ namespace Gloam.Tests
         public void CacheReturnsIdenticalReferences()
         {
             // Contract: cache returns the same array reference on a hit (no per-call clone).
-            var cal = new CalibrationSettings { Brightness = 75.0 };
+            var cal = new DisplayAdjustments { Brightness = 75.0 };
             var a = LutGenerator.GenerateLut(GammaMode.Gamma22, 200.0, cal);
             var b = LutGenerator.GenerateLut(GammaMode.Gamma22, 200.0, cal);
             Assert.Same(a.R, b.R);
@@ -270,12 +200,12 @@ namespace Gloam.Tests
         // decode with the TARGET gamma, re-encode to the display's native ~2.2.
 
         [Fact]
-        public void Sdr_Gamma22_IsIdentity_WhenNoCalibration()
+        public void Sdr_Gamma22_IsIdentity_WhenNoAdjustments()
         {
             // Gamma22 in SDR: decode 2.2, encode 1/2.2 → net passthrough, so the LUT should
             // be the identity (input == output) at every sample.
             var (r, g, b, _) = LutGenerator.GenerateLut(
-                GammaMode.Gamma22, 200.0, CalibrationSettings.Default, isHdr: false);
+                GammaMode.Gamma22, 200.0, DisplayAdjustments.Default, isHdr: false);
 
             for (int i = 0; i < r.Length; i++)
             {
@@ -292,7 +222,7 @@ namespace Gloam.Tests
             // Gamma24 in SDR: decode 2.4 (darker shadows) then re-encode 1/2.2, so a mid
             // input must come out LOWER than the input — the whole point of selecting 2.4.
             var (r, _, _, _) = LutGenerator.GenerateLut(
-                GammaMode.Gamma24, 200.0, CalibrationSettings.Default, isHdr: false);
+                GammaMode.Gamma24, 200.0, DisplayAdjustments.Default, isHdr: false);
 
             // Endpoints stay anchored: black stays black, white stays white.
             Assert.Equal(0.0, r[0], 4);
@@ -310,9 +240,9 @@ namespace Gloam.Tests
         {
             // Gamma24 must darken shadows strictly more than Gamma22 across the lower range.
             var g22 = LutGenerator.GenerateLut(
-                GammaMode.Gamma22, 200.0, CalibrationSettings.Default, isHdr: false).R;
+                GammaMode.Gamma22, 200.0, DisplayAdjustments.Default, isHdr: false).R;
             var g24 = LutGenerator.GenerateLut(
-                GammaMode.Gamma24, 200.0, CalibrationSettings.Default, isHdr: false).R;
+                GammaMode.Gamma24, 200.0, DisplayAdjustments.Default, isHdr: false).R;
 
             for (int i = 1; i < 700; i++)
             {
@@ -320,109 +250,6 @@ namespace Gloam.Tests
                     $"Gamma24 ({g24[i]:F4}) should be <= Gamma22 ({g22[i]:F4}) at index {i}");
             }
         }
-
-        [Fact]
-        public void Sdr_GenerateLut_DoesNotApplySignalDomainMeasuredLutAsLinearAdjustment()
-        {
-            // MeasuredCorrectionLut is a 3D signal-domain correction. Live 1D ramp generation
-            // operates after decoding to linear light, so it must not look up that LUT as if
-            // it were a linear-light adjustment. A destructive LUT makes accidental use obvious.
-            var destructive = new Lut3D(2);
-            for (int ri = 0; ri < 2; ri++)
-            for (int gi = 0; gi < 2; gi++)
-            for (int bi = 0; bi < 2; bi++)
-                destructive.SetEntry(ri, gi, bi, 0.0f, 0.0f, 0.0f);
-
-            var settings = new CalibrationSettings { MeasuredCorrectionLut = destructive };
-            var (r, g, b, _) = LutGenerator.GenerateLut(
-                GammaMode.Gamma22, 200.0, settings, isHdr: false);
-
-            Assert.Equal(0.0, r[0], 4);
-            Assert.Equal(1.0, r[1023], 4);
-            Assert.Equal(1.0, g[1023], 4);
-            Assert.Equal(1.0, b[1023], 4);
-
-            int idx = (int)System.Math.Round(0.5 * 1023);
-            Assert.InRange(r[idx], 0.49, 0.51);
-            Assert.InRange(g[idx], 0.49, 0.51);
-            Assert.InRange(b[idx], 0.49, 0.51);
-        }
-
-        [Fact]
-        public void CanUseCalibratedLut_RejectsCorruptPersistedProfile()
-        {
-            var profile = ValidPersistedProfile();
-            profile.WhitePointX = double.NaN;
-
-            Assert.False(LutGenerator.CanUseCalibratedLut(profile));
-        }
-
-        [Fact]
-        public void CanUseCalibratedLut_RejectsChromaticityOutsidePhysicalPlane()
-        {
-            var profile = ValidPersistedProfile();
-            profile.WhitePointX = 0.70;
-            profile.WhitePointY = 0.35;
-
-            Assert.False(LutGenerator.CanUseCalibratedLut(profile));
-        }
-
-        [Fact]
-        public void CanUseCalibratedLut_RejectsNonFiniteToneCurve()
-        {
-            var profile = ValidPersistedProfile();
-            profile.RedToneCurve = new[] { 0.0, double.NaN, 1.0 };
-
-            Assert.False(LutGenerator.CanUseCalibratedLut(profile));
-        }
-
-        [Fact]
-        public void CanUseCalibratedLut_RejectsNonMonotonicOrOutOfRangeToneCurve()
-        {
-            var nonMonotonic = ValidPersistedProfile();
-            nonMonotonic.RedToneCurve = new[] { 0.0, 0.8, 0.4, 1.0 };
-
-            var outOfRange = ValidPersistedProfile();
-            outOfRange.BlueToneCurve = new[] { 0.0, 1.2, 1.0 };
-
-            Assert.False(LutGenerator.CanUseCalibratedLut(nonMonotonic));
-            Assert.False(LutGenerator.CanUseCalibratedLut(outOfRange));
-        }
-
-        [Fact]
-        public void CanUseCalibratedLut_AcceptsFiniteMeasuredProfile()
-        {
-            Assert.True(LutGenerator.CanUseCalibratedLut(ValidPersistedProfile()));
-        }
-
-        private static DisplayCalibrationProfile ValidPersistedProfile() => new()
-        {
-            RedPrimaryX = Chromaticity.Rec709Red.X,
-            RedPrimaryY = Chromaticity.Rec709Red.Y,
-            GreenPrimaryX = Chromaticity.Rec709Green.X,
-            GreenPrimaryY = Chromaticity.Rec709Green.Y,
-            BluePrimaryX = Chromaticity.Rec709Blue.X,
-            BluePrimaryY = Chromaticity.Rec709Blue.Y,
-            WhitePointX = Chromaticity.D65.X,
-            WhitePointY = Chromaticity.D65.Y,
-            BlackLevel = 0.05,
-            PeakLuminance = 120,
-            MeasuredGamma = 2.2,
-            RedToneCurve = new[] { 0.0, 0.5, 1.0 },
-            GreenToneCurve = new[] { 0.0, 0.5, 1.0 },
-            BlueToneCurve = new[] { 0.0, 0.5, 1.0 },
-        };
-
-        private static DisplayCharacterization ValidCharacterization() => new()
-        {
-            RedPrimary = Chromaticity.Rec709Red,
-            GreenPrimary = Chromaticity.Rec709Green,
-            BluePrimary = Chromaticity.Rec709Blue,
-            WhitePoint = Chromaticity.D65,
-            BlackLevel = 0.05,
-            PeakLuminance = 120.0,
-            MeasuredGamma = 2.2
-        };
 
         private static void AssertFiniteBounded((double[] R, double[] G, double[] B, double[] Grey) lut)
         {

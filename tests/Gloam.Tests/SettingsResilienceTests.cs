@@ -31,20 +31,16 @@ namespace Gloam.Tests
         [Fact]
         public void Load_UnknownEnumValue_DoesNotThrowAndKeepsOtherProperties()
         {
-            // A NightModeAlgorithm value from a future build must not fail the whole load
-            // (the legacy v1.0.0 build threw here and then destructively reset settings).
+            // An enum value from another build must not fail the whole load (the legacy v1.0.0
+            // build threw here and then destructively reset settings).
             File.WriteAllText(SettingsPath, """
                 {
                   "SchemaVersion": 2,
                   "MonitorProfiles": {
-                    "\\\\?\\DISPLAY#TEST#1": { "GammaMode": "Gamma24", "Brightness": 80 }
+                    "\\\\?\\DISPLAY#TEST#1": { "GammaMode": "SomeFutureCurve", "Brightness": 80 }
                   },
-                  "NightMode": {
-                    "Enabled": true,
-                    "TemperatureKelvin": 2200,
-                    "Algorithm": "SomeFutureAlgorithm"
-                  },
-                  "DarkTheme": true
+                  "ProfileSelection": "Media",
+                  "StartupDefaultApplied": true
                 }
                 """);
 
@@ -53,17 +49,14 @@ namespace Gloam.Tests
             Assert.True(sm.LoadedExistingSettingsFile);
             Assert.False(sm.LoadFailedPreservingFile);
 
-            // Unknown enum string maps to the enum default instead of throwing.
-            Assert.Equal(default(NightModeAlgorithm), sm.NightMode.Algorithm);
-
-            // Everything else in the file survives.
-            Assert.True(sm.NightMode.Enabled);
-            Assert.Equal(2200, sm.NightMode.TemperatureKelvin);
-            Assert.True(sm.DarkTheme);
             var profile = sm.GetMonitorProfile(@"\\?\DISPLAY#TEST#1");
             Assert.NotNull(profile);
-            Assert.Equal(GammaMode.Gamma24, profile.GammaMode);
+            // Unknown enum string maps to the enum default instead of throwing.
+            Assert.Equal(default(GammaMode), profile.GammaMode);
+            // Everything else in the file survives.
             Assert.Equal(80.0, profile.Brightness);
+            Assert.Equal(DisplayProfileSelection.Media, sm.ProfileSelection);
+            Assert.True(sm.StartupDefaultApplied);
         }
 
         [Fact]
@@ -108,11 +101,11 @@ namespace Gloam.Tests
             Assert.True(sm.LoadFailedPreservingFile);
 
             // The user actually changing a setting is consent to persist again.
-            sm.SetDarkTheme(true);
+            Assert.True(sm.TrySetProfileSelection(DisplayProfileSelection.Media));
 
             var reloaded = new SettingsManager();
             Assert.False(reloaded.LoadFailedPreservingFile);
-            Assert.True(reloaded.DarkTheme);
+            Assert.Equal(DisplayProfileSelection.Media, reloaded.ProfileSelection);
         }
 
         [Fact]
@@ -121,7 +114,7 @@ namespace Gloam.Tests
             string newer = """
                 {
                   "SchemaVersion": 99,
-                  "DarkTheme": true
+                  "ProfileSelection": "Media"
                 }
                 """;
             File.WriteAllText(SettingsPath, newer);
@@ -130,43 +123,35 @@ namespace Gloam.Tests
 
             // Best-effort load still surfaces what this binary understands...
             Assert.True(sm.SettingsFileFromNewerVersion);
-            Assert.True(sm.DarkTheme);
+            Assert.Equal(DisplayProfileSelection.Media, sm.ProfileSelection);
 
             // ...but no save path may clobber the newer file, not even user changes.
             sm.Save();
-            sm.SetDarkTheme(false);
+            sm.SetProfileForMonitor("display-1", GammaMode.Gamma24);
+            sm.MarkStartupDefaultApplied();
 
             Assert.Equal(newer, File.ReadAllText(SettingsPath));
         }
 
         [Fact]
-        public void GamerChanges_RollBackWhenDurableSaveIsRefused()
+        public void ProfileChanges_RollBackWhenDurableSaveIsRefused()
         {
             string newer = """
                 {
                   "SchemaVersion": 99,
-                  "GamerModeEnabled": false,
-                  "GamerProfiles": [
-                    { "AppName": "existing.exe", "DisplayName": "Existing" }
-                  ]
+                  "MediaProfile": { "OverrideBrightness": true, "Brightness": 90 }
                 }
                 """;
             File.WriteAllText(SettingsPath, newer);
             var sm = new SettingsManager();
 
-            Assert.False(sm.TrySetGamerModeEnabled(true));
-            Assert.False(sm.TrySetGamerProfiles(new[]
-            {
-                GamerPresetCatalog.Create("replacement.exe", GamerPictureIntent.Reference)
-            }));
-            GamerProfileRule media = sm.MediaProfile;
-            Assert.False(sm.TrySetMediaProfile(GamerPresetCatalog.Create(string.Empty, GamerPictureIntent.NightOps)));
+            MediaProfile media = sm.MediaProfile;
+            Assert.False(sm.TrySetMediaProfile(new MediaProfile { OverrideGamma = true }));
             Assert.False(sm.TrySetProfileSelection(DisplayProfileSelection.Media));
 
-            Assert.False(sm.GamerModeEnabled);
-            Assert.Equal("existing.exe", Assert.Single(sm.GamerProfiles).AppName);
             Assert.True(media.SemanticallyEquals(sm.MediaProfile));
-            Assert.Equal(DisplayProfileSelection.Automatic, sm.ProfileSelection);
+            Assert.Equal(90, sm.MediaProfile.Brightness);
+            Assert.Equal(DisplayProfileSelection.Normal, sm.ProfileSelection);
             Assert.Equal(newer, File.ReadAllText(SettingsPath));
         }
 
@@ -174,14 +159,14 @@ namespace Gloam.Tests
         public void Save_StampsCurrentSchemaVersion()
         {
             var sm = new SettingsManager();
-            sm.SetDarkTheme(true);
+            sm.MarkStartupDefaultApplied();
 
             string json = File.ReadAllText(SettingsPath);
             Assert.Contains($"\"SchemaVersion\": {SettingsManager.CurrentSchemaVersion}", json);
 
             var reloaded = new SettingsManager();
             Assert.False(reloaded.SettingsFileFromNewerVersion);
-            Assert.True(reloaded.DarkTheme);
+            Assert.True(reloaded.StartupDefaultApplied);
         }
 
         [Fact]
@@ -190,40 +175,53 @@ namespace Gloam.Tests
             // Pre-versioning (v1) files have no SchemaVersion property at all.
             File.WriteAllText(SettingsPath, """
                 {
-                  "DarkTheme": true
+                  "StartupDefaultApplied": true
                 }
                 """);
 
             var sm = new SettingsManager();
 
             Assert.False(sm.SettingsFileFromNewerVersion);
-            Assert.True(sm.DarkTheme);
+            Assert.True(sm.StartupDefaultApplied);
 
             // Saving upgrades the file to the current schema stamp.
-            sm.SetDarkTheme(false);
+            sm.MarkLegacyInstallWarningShown();
             Assert.Contains($"\"SchemaVersion\": {SettingsManager.CurrentSchemaVersion}", File.ReadAllText(SettingsPath));
         }
 
         [Fact]
-        public void Load_LegacyExclusions_PreservesOtherSettings()
+        public void Load_RetiredSettings_AreIgnoredAndTheRestKept()
         {
+            // What calibration, night mode, colour balance, Game Lab and the old UI saved. None
+            // of it may fail the load or survive the next save.
             File.WriteAllText(SettingsPath, """
-                { "DarkTheme": true, "TrustCheckReminderDays": 14,
-                  "ExcludedApps": ["game.exe"] }
+                { "SchemaVersion": 5, "DarkTheme": true, "TrustCheckReminderDays": 14,
+                  "ExcludedApps": ["game.exe"],
+                  "NightMode": { "Enabled": true, "Algorithm": "Perceptual" },
+                  "WindowBounds": { "Dashboard": { "Left": 1, "Top": 2, "Width": 900, "Height": 700 } },
+                  "UiSectionExpanded": { "Dashboard.GameLab": true },
+                  "MonitorProfiles": { "display-1": { "GammaMode": "Gamma24", "Brightness": 75,
+                      "Temperature": -10, "RedGain": 1.1, "Mhc2ProfileName": "x.icm", "CalibrationProfileId": null } },
+                  "StartupDefaultApplied": true }
                 """);
 
             var sm = new SettingsManager();
 
             Assert.False(sm.LoadFailedPreservingFile);
-            Assert.True(sm.DarkTheme);
-            Assert.Equal("game.exe", Assert.Single(sm.ExcludedApps).AppName);
-            Assert.Equal(14, sm.TrustCheckReminderDays);
-            Assert.True(new SettingsManager().DarkTheme);
+            Assert.True(sm.StartupDefaultApplied);
+            Assert.Equal(GammaMode.Gamma24, sm.GetProfileForMonitor("display-1"));
+            Assert.Equal(75, sm.GetMonitorProfile("display-1")!.Brightness);
+
+            sm.MarkLegacyInstallWarningShown();
+            string saved = File.ReadAllText(SettingsPath);
+            foreach (string retired in new[] { "DarkTheme", "TrustCheckReminderDays", "ExcludedApps", "NightMode",
+                         "WindowBounds", "UiSectionExpanded", "Temperature", "RedGain", "Mhc2ProfileName" })
+                Assert.DoesNotContain(retired, saved);
         }
 
         [Theory]
-        [InlineData("ExcludedApps", "[\"game.exe\"]")]
-        [InlineData("DarkTheme", "{\"future\": true}")]
+        [InlineData("MonitorProfiles", "[\"display-1\"]")]
+        [InlineData("ProfileSelection", "{\"future\": true}")]
         public void Load_NewerSchemaWithIncompatibleProperty_NeverOverwritesFile(string name, string value)
         {
             string json = "{\"sChEmAvErSiOn\": 99,\"" + name + "\":" + value + "}";
@@ -233,13 +231,13 @@ namespace Gloam.Tests
 
             Assert.True(sm.SettingsFileFromNewerVersion);
             Assert.False(sm.Save());
-            sm.SetDarkTheme(false);
+            sm.MarkStartupDefaultApplied();
             Assert.Equal(json, File.ReadAllText(SettingsPath));
         }
 
         [Theory]
         [InlineData("null")]
-        [InlineData("{\"DarkTheme\": \"invalid\"}")]
+        [InlineData("{\"StartupDefaultApplied\": \"invalid\"}")]
         public void Load_InvalidSettingsShape_PreservesFile(string json)
         {
             File.WriteAllText(SettingsPath, json);

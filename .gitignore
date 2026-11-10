@@ -53,20 +53,8 @@ ReleasesNew/
 *.csv
 *.cal
 
-# Golden-sample regression fixtures are REAL measurement recordings the CI replay
-# tests depend on — they must ship in the repo despite the blanket *.csv ignore.
-!tests/Gloam.Tests/Fixtures/**/*.csv
-
 # Internal planning document. Kept locally, deliberately not published: it carries
 # competitive positioning, candid not-yet-validated notes, and unreleased plans that
 # should not be the first thing a visitor browses.
 ROADMAP.md
 
-# Wrangler's local cache, written by any `wrangler pages deploy` run. Deploys
-# are normally CI's job (.github/workflows/deploy-site.yml); this only appears
-# when someone deploys the site by hand.
-.wrangler/
-
-# Build-time tooling only (KaTeX, used by scripts/build-whitepaper-math.mjs).
-# The site itself ships no runtime JavaScript beyond its small inline scripts.
-node_modules/

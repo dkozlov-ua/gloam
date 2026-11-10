@@ -7,19 +7,20 @@
 ; updates that same folder in place, so the shortcut, a taskbar pin and the Start with Windows
 ; registration (an HKCU Run value pointing at Gloam.exe) never need repointing.
 ;
-; Tray -> Check for Updates downloads the release's setup and runs it with
+; "Check for updates" in Gloam's window downloads the release's setup and runs it with
 ;   /SILENT /SUPPRESSMSGBOXES /NORESTART /relaunch=1
 ; and exits. The setup waits for that Gloam to let go of its single-instance mutex (it holds its
-; files open until then), replaces the files, and starts Gloam again: /relaunch=1 says to, because
-; by the time the setup looks, the Gloam that asked may already be gone. See UpdateService.
+; files open until then), replaces the files, and starts Gloam again in the tray (--background):
+; /relaunch=1 says to, because by the time the setup looks, the Gloam that asked may already be gone.
+; See UpdateService.
 ;
 ; The unins000.exe the setup leaves beside Gloam.exe is how the app tells an installation from a dev
 ; run (UpdateService.IsInstallation): only an installation updates itself or takes over the Start
 ; with Windows registration.
 ;
 ; Uninstalling deletes the installed files, the shortcut, and the Start with Windows registration
-; when it points into the installation. %LOCALAPPDATA%\Gloam (settings, calibration reports, logs)
-; is the user's and stays.
+; when it points into the installation. %LOCALAPPDATA%\Gloam (settings, logs) is the user's and
+; stays.
 ;
 ; Keep this file ASCII.
 
@@ -69,9 +70,13 @@ Compression=lzma2/max
 SolidCompression=yes
 
 [InstallDelete]
-; The bundled ArgyllCMS lives in a folder named for its version, and ArgyllPathFinder picks among
-; whatever versions are there: an update that bumps ArgyllCMS must not leave the old one beside it.
+; What older releases installed and this one no longer ships: the ArgyllCMS that calibration
+; used, the MHC2 profile templates, and the files of the zip-and-script installer.
 Type: filesandordirs; Name: "{app}\argyll_cache"
+Type: files; Name: "{app}\*.icm"
+Type: files; Name: "{app}\install.ps1"
+Type: files; Name: "{app}\manifest.txt"
+Type: files; Name: "{app}\VERSION"
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -80,8 +85,8 @@ Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs 
 Name: "{autoprograms}\Gloam"; Filename: "{app}\Gloam.exe"; Comment: "Gamma correction for SDR content in Windows HDR mode"
 
 [Run]
-; An update from the tray, or a setup run over a running Gloam: start it again.
-Filename: "{app}\Gloam.exe"; Check: ShouldRelaunch; Flags: nowait
+; An update from Gloam, or a setup run over a running Gloam: start it again, in the tray.
+Filename: "{app}\Gloam.exe"; Parameters: "--background"; Check: ShouldRelaunch; Flags: nowait
 Filename: "{app}\Gloam.exe"; Description: "Start Gloam"; Check: not ShouldRelaunch; Flags: nowait postinstall skipifsilent
 
 [Code]
@@ -129,7 +134,7 @@ begin
   Result := WaitForExit(1);
   while not Result do
   begin
-    if MsgBox('Gloam is running. Exit it from its tray icon (right-click, Exit), then click Retry.',
+    if MsgBox('Gloam is running. Exit it (right-click its tray icon, Exit), then click Retry.',
               mbError, MB_RETRYCANCEL) <> IDRETRY then
       Exit;
     Result := WaitForExit(5);

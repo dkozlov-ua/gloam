@@ -8,7 +8,7 @@ using Gloam.Interop;
 
 namespace Gloam.Core
 {
-    public class MonitorManager
+    public class MonitorManager : IMonitorSource
     {
         public List<MonitorInfo> EnumerateMonitors()
         {

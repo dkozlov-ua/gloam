@@ -6,7 +6,7 @@ namespace Gloam.Interop
     /// <summary>
     /// GDI gamma ramp interop. SetDeviceGammaRamp is the same API ArgyllCMS dispwin
     /// uses to load the VCGT on Windows, so calling it directly produces bit-identical
-    /// hardware state without the external process spawn.
+    /// hardware state.
     /// </summary>
     public static class Gdi32
     {

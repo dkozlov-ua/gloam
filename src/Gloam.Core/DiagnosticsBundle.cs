@@ -12,14 +12,12 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
-using Gloam.Core.Calibration;
 
 namespace Gloam.Core
 {
     /// <summary>
-    /// Creates a support bundle with logs, sanitized settings, monitor/HDR topology, and
-    /// calibration-profile summaries. The zip is intentionally text-only; it does not include
-    /// raw ICC files, correction files, or saved calibration reports unless the caller opts in.
+    /// Creates a support bundle with logs, sanitized settings and monitor/HDR topology. The
+    /// zip is intentionally text-only.
     /// </summary>
     public sealed class DiagnosticsBundle
     {
@@ -38,8 +36,7 @@ namespace Gloam.Core
         public string Create(
             string outputDirectory,
             IEnumerable<MonitorInfo> monitors,
-            SettingsManager settingsManager,
-            bool includeCalibrationReports = false)
+            SettingsManager settingsManager)
         {
             if (string.IsNullOrWhiteSpace(outputDirectory))
                 throw new ArgumentException("Output directory is required.", nameof(outputDirectory));
@@ -50,13 +47,10 @@ namespace Gloam.Core
             string zipPath = BuildUniqueBundlePath(outputDirectory, DateTimeOffset.Now);
 
             using var zip = ZipFile.Open(zipPath, ZipArchiveMode.Create);
-            AddText(zip, "manifest.json", BuildManifest(monitors, includeCalibrationReports));
+            AddText(zip, "manifest.json", BuildManifest(monitors));
             AddSanitizedFileIfExists(zip, Path.Combine(AppPaths.DataDir, "settings.json"), "settings.sanitized.json");
             AddSanitizedFileIfExists(zip, Path.Combine(AppPaths.DataDir, "update-state.json"), "update-state.sanitized.json");
             AddLogs(zip);
-            AddCalibrationProfileSummary(zip, settingsManager);
-            if (includeCalibrationReports)
-                AddCalibrationReports(zip);
             AddThirdPartyNotices(zip);
 
             return zipPath;
@@ -79,7 +73,9 @@ namespace Gloam.Core
             return Path.Combine(outputDirectory, $"Gloam-Diagnostics-{stamp}-{Guid.NewGuid():N}.zip");
         }
 
-        internal static string SanitizeText(string text)
+        internal static string SanitizeText(string text) => SanitizeText(text, Environment.UserName);
+
+        internal static string SanitizeText(string text, string? userName)
         {
             if (string.IsNullOrEmpty(text)) return text;
 
@@ -98,14 +94,22 @@ namespace Gloam.Core
                     sanitized = sanitized.Replace(source, replacement, StringComparison.OrdinalIgnoreCase);
             }
 
-            string userName = Environment.UserName;
+            // Whole words only: a short account name such as "me" also occurs inside ordinary
+            // words ("Documents", "name"), and replacing those garbled the logs it was meant
+            // to protect without hiding anything.
             if (!string.IsNullOrWhiteSpace(userName))
-                sanitized = sanitized.Replace(userName, "%USERNAME%", StringComparison.OrdinalIgnoreCase);
+            {
+                sanitized = Regex.Replace(
+                    sanitized,
+                    @"(?<![\p{L}\p{N}_])" + Regex.Escape(userName) + @"(?![\p{L}\p{N}_])",
+                    "%USERNAME%",
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            }
 
             return MonitorIdentifierRegex.Replace(sanitized, match => "monitor-" + HashId(match.Value));
         }
 
-        internal static string BuildManifest(IEnumerable<MonitorInfo> monitors, bool includeCalibrationReports)
+        internal static string BuildManifest(IEnumerable<MonitorInfo> monitors)
         {
             var assembly = Assembly.GetEntryAssembly() ?? typeof(DiagnosticsBundle).Assembly;
             var manifest = new
@@ -124,10 +128,6 @@ namespace Gloam.Core
                     Framework = RuntimeInformation.FrameworkDescription,
                     ProcessArchitecture = RuntimeInformation.ProcessArchitecture.ToString(),
                     Is64BitProcess = Environment.Is64BitProcess
-                },
-                Diagnostics = new
-                {
-                    IncludeCalibrationReports = includeCalibrationReports
                 },
                 Monitors = monitors.Select(ToDiagnosticMonitor).ToList()
             };
@@ -182,172 +182,6 @@ namespace Gloam.Core
             {
                 AddSanitizedFileIfExists(zip, file, $"logs/{Path.GetFileName(file)}");
             }
-        }
-
-        private static void AddCalibrationProfileSummary(ZipArchive zip, SettingsManager settingsManager)
-        {
-            try
-            {
-                var profiles = settingsManager.ListCalibrationProfiles()
-                    .Select(p => new
-                    {
-                        p.Id,
-                        p.Name,
-                        MonitorDevicePathHash = HashId(p.MonitorDevicePath),
-                        p.MonitorName,
-                        p.Mode,
-                        p.CalibratedAt,
-                        p.TargetColorSpace,
-                        p.TargetGamma,
-                        p.ColorimeterModel,
-                        p.BlackLevel,
-                        p.PeakLuminance,
-                        p.MeasuredGamma,
-                        HasToneCurves = p.RedToneCurve != null || p.GreenToneCurve != null || p.BlueToneCurve != null,
-                        ReferenceLutSize = p.ReferenceLutSize
-                    })
-                    .ToList();
-
-                AddText(zip, "calibration-profiles-summary.json",
-                    JsonSerializer.Serialize(profiles, JsonOptions));
-            }
-            catch (Exception ex)
-            {
-                AddText(zip, "calibration-profiles-summary.error.txt", SanitizeText(ex.Message));
-            }
-        }
-
-        private static void AddCalibrationReports(ZipArchive zip)
-        {
-            string reportsDir = Path.Combine(AppPaths.DataDir, "reports");
-            if (!Directory.Exists(reportsDir))
-            {
-                AddText(zip, "reports/README.txt", "No saved calibration reports were found.");
-                return;
-            }
-
-            var reports = new List<CalibrationProfile>();
-            foreach (string file in Directory.GetFiles(reportsDir, "*.json").OrderBy(Path.GetFileName))
-            {
-                string fileName = Path.GetFileName(file);
-                AddSanitizedFileIfExists(zip, file, $"reports/json/{fileName}");
-
-                try
-                {
-                    reports.Add(CalibrationProfile.LoadFromFile(file));
-                }
-                catch (Exception ex)
-                {
-                    AddText(zip, $"reports/errors/{fileName}.txt",
-                        $"Failed to load {fileName}: {SanitizeText(ex.Message)}");
-                }
-            }
-
-            if (reports.Count == 0)
-            {
-                AddText(zip, "reports/README.txt", "No readable calibration reports were found.");
-                AddRawMeasurementCsvs(zip, reportsDir);
-                return;
-            }
-
-            AddText(zip, "reports/calibration-report-summary.csv", BuildCalibrationReportSummaryCsv(reports));
-
-            string detailedCsv = BuildDetailedVerificationCsv(reports);
-            if (!string.IsNullOrWhiteSpace(detailedCsv))
-                AddText(zip, "reports/detailed-verification-patches.csv", detailedCsv);
-            AddRawMeasurementCsvs(zip, reportsDir);
-        }
-
-        private static void AddRawMeasurementCsvs(ZipArchive zip, string reportsDir)
-        {
-            string measurementDir = Path.Combine(reportsDir, "measurements");
-            if (!Directory.Exists(measurementDir)) return;
-
-            foreach (string file in Directory.GetFiles(measurementDir, "*.csv").OrderBy(Path.GetFileName))
-            {
-                AddSanitizedFileIfExists(zip, file, $"reports/raw-measurements/{Path.GetFileName(file)}");
-            }
-        }
-
-        internal static string BuildCalibrationReportSummaryCsv(IEnumerable<CalibrationProfile> reports)
-        {
-            var sb = new StringBuilder();
-            AppendCsvRow(sb,
-                "report_id", "monitor_name", "monitor_device_path_hash", "calibrated_at_utc",
-                "target", "colorimeter", "software_version", "patch_count",
-                "peak_luminance_nits", "black_level_nits", "measured_gamma",
-                "white_x", "white_y", "quality_grade",
-                "avg_delta_e", "max_delta_e", "grayscale_delta_e", "primary_delta_e",
-                "after_avg_delta_e", "after_max_delta_e", "after_grayscale_delta_e", "after_primary_delta_e",
-                "detailed_grayscale_delta_e", "detailed_primaries_delta_e",
-                "detailed_saturation_delta_e", "detailed_memory_colors_delta_e");
-
-            foreach (var report in reports.OrderByDescending(r => r.LastCalibratedAt ?? r.CreatedAt))
-            {
-                var summary = report.ReportSummary;
-                var characteristics = report.MeasuredCharacteristics;
-                AppendCsvRow(sb,
-                    report.Id,
-                    report.MonitorName,
-                    HashId(report.MonitorDevicePath),
-                    report.LastCalibratedAt ?? report.CreatedAt,
-                    report.Target.Name,
-                    report.ColorimeterModel,
-                    report.SoftwareVersion,
-                    report.PatchCount,
-                    characteristics?.PeakLuminance,
-                    characteristics?.BlackLevel,
-                    characteristics?.MeasuredGamma,
-                    characteristics?.MeasuredWhite.X,
-                    characteristics?.MeasuredWhite.Y,
-                    report.QualityGrade,
-                    summary?.AvgDeltaE,
-                    summary?.MaxDeltaE,
-                    summary?.GrayscaleDeltaE,
-                    summary?.PrimaryDeltaE,
-                    summary?.AfterAvgDeltaE,
-                    summary?.AfterMaxDeltaE,
-                    summary?.AfterGrayscaleDeltaE,
-                    summary?.AfterPrimaryDeltaE,
-                    summary?.DetailedGrayscaleDeltaE,
-                    summary?.DetailedPrimariesDeltaE,
-                    summary?.DetailedSaturationDeltaE,
-                    summary?.DetailedMemoryColorsDeltaE);
-            }
-
-            return sb.ToString();
-        }
-
-        internal static string BuildDetailedVerificationCsv(IEnumerable<CalibrationProfile> reports)
-        {
-            var rows = new StringBuilder();
-            AppendCsvRow(rows,
-                "report_id", "monitor_name", "monitor_device_path_hash", "calibrated_at_utc",
-                "patch_index", "patch_name", "category", "delta_e");
-
-            int count = 0;
-            foreach (var report in reports.OrderByDescending(r => r.LastCalibratedAt ?? r.CreatedAt))
-            {
-                var detailed = report.ReportSummary?.DetailedPatches;
-                if (detailed == null || detailed.Count == 0) continue;
-
-                for (int i = 0; i < detailed.Count; i++)
-                {
-                    var patch = detailed[i];
-                    AppendCsvRow(rows,
-                        report.Id,
-                        report.MonitorName,
-                        HashId(report.MonitorDevicePath),
-                        report.LastCalibratedAt ?? report.CreatedAt,
-                        i,
-                        patch.Name,
-                        patch.Category,
-                        patch.DeltaE);
-                    count++;
-                }
-            }
-
-            return count == 0 ? string.Empty : rows.ToString();
         }
 
         private static void AddThirdPartyNotices(ZipArchive zip)

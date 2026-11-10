@@ -1,152 +1,138 @@
 using System;
-using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using System.Linq;
-using System.Windows;
-using System.Windows.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
-using CommunityToolkit.Mvvm.Input;
 using Gloam.Core;
 
 namespace Gloam.ViewModels
 {
-    public class MonitorViewModel : ObservableObject
+    /// <summary>
+    /// One monitor's own settings in the window: gamma, brightness and how dimming treats
+    /// shadows. Every change is saved at once; the saved change is what re-applies the ramp
+    /// (see <see cref="MainViewModel"/>).
+    /// </summary>
+    public sealed class MonitorViewModel : ObservableObject
     {
-        private readonly MonitorInfo _model;
-        public MonitorInfo Model => _model;
-        
-        private readonly ProfileManager _profileManager;
-        private readonly DispwinRunner _dispwinRunner;
-        private readonly SettingsManager? _settingsManager;
-        private readonly int _index;
-        
-        /// <summary>
-        /// Callback to get all monitors for settings window.
-        /// </summary>
-        public Func<List<MonitorInfo>>? GetAllMonitors { get; set; }
-        
-        /// <summary>
-        /// Callback to notify parent when profile changes (for persistence).
-        /// </summary>
-        public Action<MonitorInfo, GammaMode>? OnProfileChanged { get; set; }
-        
-        /// <summary>
-        /// Callback to apply gamma with calibration settings.
-        /// </summary>
-        public Action<MonitorInfo, GammaMode, CalibrationSettings?, int?>? OnApplyWithCalibration { get; set; }
+        private readonly SettingsManager _settings;
+        private bool _loading;
 
-        public string Header => $"{_index}: {_model.FriendlyName} ({(_model.IsHdrActive ? "HDR" : "SDR")})";
-        
-        // This view model represents a parent menu item, so it has no command but has children.
-        public ICommand? Command => null;
-        
-        public ObservableCollection<ActionViewModel> SubItems { get; } = new ObservableCollection<ActionViewModel>();
-
-        private ActionViewModel? _gamma22Item;
-        private ActionViewModel? _gamma24Item;
-        private ActionViewModel? _defaultItem;
-
-        public MonitorViewModel(MonitorInfo model, ProfileManager profileManager, DispwinRunner dispwinRunner, int index, SettingsManager? settingsManager = null)
+        public MonitorViewModel(MonitorInfo monitor, int number, SettingsManager settings)
         {
-            _model = model;
-            _profileManager = profileManager;
-            _dispwinRunner = dispwinRunner;
-            _index = index;
-            _settingsManager = settingsManager;
-
-            RebuildSubItems();
+            Model = monitor ?? throw new ArgumentNullException(nameof(monitor));
+            Number = number;
+            _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+            Reload();
         }
-        
-        private string GammaLabel(GammaMode mode, string name)
-            => (_model.CurrentGamma == mode ? "✓ " : "   ") + name;
 
-        private void RebuildSubItems()
+        public MonitorInfo Model { get; }
+
+        public int Number { get; }
+
+        public string DevicePath => Model.MonitorDevicePath;
+
+        public string Title => string.IsNullOrWhiteSpace(Model.FriendlyName)
+            ? $"Display {Number}"
+            : $"{Number}. {Model.FriendlyName}";
+
+        public bool IsHdr => Model.IsHdrActive;
+
+        // The display picker's items are named by it, for screen readers and UI Automation.
+        public override string ToString() => Title;
+
+        /// <summary>The signal the display gets: HDR with its SDR white level, or SDR.</summary>
+        public string Signal => Model.IsHdrActive
+            ? $"HDR · SDR white {MonitorInfo.SanitizeSdrWhiteLevel(Model.SdrWhiteLevel):F0} nits"
+            : "SDR";
+
+        private GammaMode _gamma;
+        public GammaMode Gamma
         {
-            SubItems.Clear();
-
-            if (_model.IsHdrActive)
+            get => _gamma;
+            set
             {
-                // HDR is active - show gamma options with checkmarks. These stay open
-                // on click so modes can be A/B compared without reopening the menu.
-                _gamma22Item = new ActionViewModel(GammaLabel(GammaMode.Gamma22, "Gamma 2.2"), new RelayCommand(() => ApplyGamma(GammaMode.Gamma22)), staysOpenOnClick: true);
-                _gamma24Item = new ActionViewModel(GammaLabel(GammaMode.Gamma24, "Gamma 2.4"), new RelayCommand(() => ApplyGamma(GammaMode.Gamma24)), staysOpenOnClick: true);
-                _defaultItem = new ActionViewModel(GammaLabel(GammaMode.WindowsDefault, "Windows Default"), new RelayCommand(() => ApplyGamma(GammaMode.WindowsDefault)), staysOpenOnClick: true);
-
-                SubItems.Add(_gamma22Item);
-                SubItems.Add(_gamma24Item);
-                // The native Windows curve (_defaultItem) is hidden from gamma selectors.
-                // It is still built so UpdateCheckmarks keeps one code path.
-
-                // Add settings option
-                SubItems.Add(new ActionViewModel("───────────", null));
-                SubItems.Add(new ActionViewModel("Settings...", new RelayCommand(OpenSettings)));
-            }
-            else
-            {
-                // HDR not active - show SDR info and settings
-                _gamma22Item = _gamma24Item = _defaultItem = null;
-                SubItems.Add(new ActionViewModel("(SDR Display)", null));
-
-                // Add settings option
-                SubItems.Add(new ActionViewModel("───────────", null));
-                SubItems.Add(new ActionViewModel("Settings...", new RelayCommand(OpenSettings)));
+                if (!SetProperty(ref _gamma, value)) return;
+                OnPropertyChanged(nameof(IsGamma22));
+                OnPropertyChanged(nameof(IsGamma24));
+                Save(profile => profile.GammaMode = value);
             }
         }
 
-        /// <summary>
-        /// Update the checkmark labels in place. Clearing SubItems would tear the
-        /// items out of the still-open menu (gamma items keep it open on click).
-        /// </summary>
-        private void UpdateCheckmarks()
+        public bool IsGamma22
         {
-            if (_gamma22Item == null || _gamma24Item == null || _defaultItem == null) return;
-            _gamma22Item.Header = GammaLabel(GammaMode.Gamma22, "Gamma 2.2");
-            _gamma24Item.Header = GammaLabel(GammaMode.Gamma24, "Gamma 2.4");
-            _defaultItem.Header = GammaLabel(GammaMode.WindowsDefault, "Windows Default");
-        }
-        
-        private void OpenSettings()
-        {
-            if (_settingsManager == null) return;
-            
-            var allMonitors = GetAllMonitors?.Invoke() ?? new List<MonitorInfo> { _model };
-            
-            var settingsWindow = new SettingsWindow(_model, allMonitors, _settingsManager, 
-                (monitor, mode, calibration, nightOverride) =>
-                {
-                    // Delegate to parent to ensure Night Mode is respected
-                    OnApplyWithCalibration?.Invoke(monitor, mode, calibration, nightOverride);
-                    
-                    if (monitor.MonitorDevicePath == _model.MonitorDevicePath)
-                    {
-                        RebuildSubItems();
-                    }
-                });
-            settingsWindow.ShowDialog();
+            get => Gamma == GammaMode.Gamma22;
+            set { if (value) Gamma = GammaMode.Gamma22; }
         }
 
-        private void ApplyGamma(GammaMode mode)
+        public bool IsGamma24
         {
-             try
-             {
-                // Delegate to parent to ensure Night Mode is respected
-                OnApplyWithCalibration?.Invoke(_model, mode, null, null);
+            get => Gamma == GammaMode.Gamma24;
+            set { if (value) Gamma = GammaMode.Gamma24; }
+        }
 
-                // Update checkmarks in place; the menu is still open
-                UpdateCheckmarks();
-             }
-             catch (Exception ex)
-             {
-                 // Themed dialog with a real owner instead of a stock parentless MessageBox,
-                 // which could appear behind other windows or on the wrong monitor (same
-                 // pattern as TrayViewModel.ExportDiagnostics: prefer the active visible
-                 // window, fall back to MainWindow since this VM has no window of its own).
-                 var owner = Application.Current?.Windows
-                     .OfType<Window>()
-                     .FirstOrDefault(w => w.IsActive && w.IsVisible)
-                     ?? Application.Current?.MainWindow;
-                 ConfirmDialog.Info(owner!, "Gloam - Error", $"Failed to apply gamma:\n\n{ex.Message}");
-             }
+        private double _brightness = 100.0;
+        public double Brightness
+        {
+            get => _brightness;
+            set
+            {
+                value = Math.Round(Math.Clamp(double.IsFinite(value) ? value : 100.0, 10.0, 100.0));
+                if (!SetProperty(ref _brightness, value)) return;
+                OnPropertyChanged(nameof(BrightnessText));
+                Save(profile => profile.Brightness = value);
+            }
+        }
+
+        public string BrightnessText => $"{Brightness:F0}%";
+
+        private bool _preserveShadows = true;
+        /// <summary>Dim with the shadow-preserving curve rather than a straight multiply.</summary>
+        public bool PreserveShadows
+        {
+            get => _preserveShadows;
+            set
+            {
+                if (!SetProperty(ref _preserveShadows, value)) return;
+                Save(profile => profile.UseLinearBrightness = !value);
+            }
+        }
+
+        private string? _mediaNote;
+        /// <summary>What the active Media profile overrides on this display; null when nothing.</summary>
+        public string? MediaNote
+        {
+            get => _mediaNote;
+            set
+            {
+                if (SetProperty(ref _mediaNote, value))
+                    OnPropertyChanged(nameof(HasMediaNote));
+            }
+        }
+
+        public bool HasMediaNote => !string.IsNullOrEmpty(MediaNote);
+
+        /// <summary>Reads the saved settings again, without saving anything.</summary>
+        public void Reload()
+        {
+            MonitorProfileData profile = _settings.GetMonitorProfile(DevicePath)
+                ?? new MonitorProfileData { GammaMode = Model.CurrentGamma };
+            _loading = true;
+            try
+            {
+                Gamma = profile.GammaMode;
+                Brightness = profile.Brightness;
+                PreserveShadows = !profile.UseLinearBrightness;
+            }
+            finally
+            {
+                _loading = false;
+            }
+        }
+
+        private void Save(Action<MonitorProfileData> edit)
+        {
+            if (_loading || string.IsNullOrEmpty(DevicePath)) return;
+            MonitorProfileData profile = _settings.GetMonitorProfile(DevicePath)
+                ?? new MonitorProfileData { GammaMode = Model.CurrentGamma };
+            edit(profile);
+            _settings.SetMonitorProfile(DevicePath, profile);
         }
     }
 }

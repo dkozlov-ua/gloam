@@ -4,72 +4,47 @@ using Xunit;
 namespace Gloam.Tests
 {
     /// <summary>
-    /// Tests for the Run-key repair decision logic. Registry access itself is not
-    /// unit-testable, so <see cref="StartupManager.IsRegisteredPathStale"/> and
-    /// <see cref="StartupManager.ExtractExePath"/> are exercised as pure functions.
+    /// Tests for the Run-key value and its repair decision. Registry access itself is not
+    /// unit-testable, so <see cref="StartupManager.RunValue"/> and
+    /// <see cref="StartupManager.NeedsRepair"/> are exercised as pure functions; the UI tests
+    /// cover the registry round trip under their own profile.
     /// </summary>
     public class StartupManagerTests
     {
-        private const string CurrentExe = @"C:\Users\Dev\AppData\Local\GloamApp\current\Gloam.exe";
+        private const string CurrentExe = @"C:\Users\Dev\AppData\Local\Programs\Gloam\Gloam.exe";
 
-        [Theory]
-        [InlineData("\"C:\\Users\\Dev\\AppData\\Local\\GloamApp\\current\\Gloam.exe\"")] // quoted, exact
-        [InlineData(@"C:\Users\Dev\AppData\Local\GloamApp\current\Gloam.exe")]           // unquoted
-        [InlineData("\"c:\\users\\dev\\appdata\\local\\gloamapp\\current\\gloam.exe\"")] // case differs
-        [InlineData("  \"C:\\Users\\Dev\\AppData\\Local\\GloamApp\\current\\Gloam.exe\"  ")] // padded
-        public void IsRegisteredPathStale_CurrentPath_IsNotStale(string registered)
+        [Fact]
+        public void RunValue_QuotesThePathAndStartsInTheTray()
         {
-            Assert.False(StartupManager.IsRegisteredPathStale(registered, CurrentExe));
+            Assert.Equal($"\"{CurrentExe}\" --background", StartupManager.RunValue(CurrentExe));
         }
 
         [Theory]
-        [InlineData("\"C:\\Program Files\\HDR-Gamma-Adjust\\Gloam.exe\"")] // legacy install dir
-        [InlineData(@"C:\Program Files\HDR-Gamma-Adjust\Gloam.exe")]       // legacy, unquoted
-        [InlineData("\"C:\\Deleted\\Nowhere\\Gloam.exe\"")]                // nonexistent location
-        [InlineData("\"C:\\Users\\Dev\\AppData\\Local\\GloamApp\\app-1.0.0\\Gloam.exe\"")] // old layout
-        public void IsRegisteredPathStale_DifferentPath_IsStale(string registered)
+        [InlineData("\"C:\\Users\\Dev\\AppData\\Local\\Programs\\Gloam\\Gloam.exe\" --background")]   // exact
+        [InlineData("\"c:\\users\\dev\\appdata\\local\\programs\\gloam\\gloam.exe\" --BACKGROUND")]   // case differs
+        [InlineData("  \"C:\\Users\\Dev\\AppData\\Local\\Programs\\Gloam\\Gloam.exe\" --background  ")] // padded
+        public void NeedsRepair_TheCurrentCommand_IsLeftAlone(string registered)
         {
-            Assert.True(StartupManager.IsRegisteredPathStale(registered, CurrentExe));
+            Assert.False(StartupManager.NeedsRepair(registered, CurrentExe));
+        }
+
+        [Theory]
+        // Before --background, logon opened the window: the old value is rewritten.
+        [InlineData("\"C:\\Users\\Dev\\AppData\\Local\\Programs\\Gloam\\Gloam.exe\"")]
+        [InlineData(@"C:\Users\Dev\AppData\Local\Programs\Gloam\Gloam.exe")]
+        [InlineData("\"C:\\Program Files\\HDR-Gamma-Adjust\\Gloam.exe\"")]              // legacy install dir
+        [InlineData("\"C:\\Deleted\\Nowhere\\Gloam.exe\" --background")]                // another location
+        [InlineData("\"C:\\Users\\Dev\\AppData\\Local\\GloamApp\\current\\Gloam.exe\"")] // Velopack layout
+        public void NeedsRepair_AnotherCommand_IsRewritten(string registered)
+        {
+            Assert.True(StartupManager.NeedsRepair(registered, CurrentExe));
         }
 
         [Fact]
-        public void IsRegisteredPathStale_QuotedPathWithArguments_ComparesExeOnly()
-        {
-            Assert.False(StartupManager.IsRegisteredPathStale(
-                $"\"{CurrentExe}\" --autostart", CurrentExe));
-
-            Assert.True(StartupManager.IsRegisteredPathStale(
-                "\"C:\\Program Files\\HDR-Gamma-Adjust\\Gloam.exe\" --autostart", CurrentExe));
-        }
-
-        [Theory]
-        [InlineData(null)]
-        [InlineData("")]
-        [InlineData("   ")]
-        public void IsRegisteredPathStale_MissingRegisteredValue_IsNotStale(string? registered)
+        public void NeedsRepair_NoRunValue_HasNothingToRepair()
         {
             // No Run value (startup disabled) means there is nothing to repair.
-            Assert.False(StartupManager.IsRegisteredPathStale(registered, CurrentExe));
-        }
-
-        [Theory]
-        [InlineData(null)]
-        [InlineData("")]
-        public void IsRegisteredPathStale_UnknownCurrentPath_IsNotStale(string? currentExePath)
-        {
-            // If the current exe path cannot be determined, do not touch the registration.
-            Assert.False(StartupManager.IsRegisteredPathStale($"\"{CurrentExe}\"", currentExePath));
-        }
-
-        [Theory]
-        [InlineData("\"C:\\Apps\\Gloam.exe\"", @"C:\Apps\Gloam.exe")]
-        [InlineData(@"C:\Apps\Gloam.exe", @"C:\Apps\Gloam.exe")]
-        [InlineData("\"C:\\Apps\\Gloam.exe\" --flag", @"C:\Apps\Gloam.exe")]
-        [InlineData("  \"C:\\Apps\\Gloam.exe\"  ", @"C:\Apps\Gloam.exe")]
-        [InlineData("\"C:\\Apps\\Gloam.exe", @"C:\Apps\Gloam.exe")] // unterminated quote
-        public void ExtractExePath_StripsQuotesAndArguments(string registryValue, string expected)
-        {
-            Assert.Equal(expected, StartupManager.ExtractExePath(registryValue));
+            Assert.False(StartupManager.NeedsRepair(null, CurrentExe));
         }
     }
 }

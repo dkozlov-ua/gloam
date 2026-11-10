@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    End-to-end tests: they start Gloam.exe as its own profile (its own settings, single-instance
+    names and Start with Windows value) with simulated displays, so no real display is touched,
+    and drive its window with UI Automation. They need an interactive desktop session.
+    Run them with: dotnet test tests\Gloam.UiTests -c Release
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>Gloam.UiTests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Using Include="System.IO" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- To build Gloam.exe and copy it next to the tests, which drive it as a black box. Core is
+         used only to compute the ramp a display should show. -->
+    <ProjectReference Include="..\..\src\Gloam\Gloam.csproj" />
+    <ProjectReference Include="..\..\src\Gloam.Core\Gloam.Core.csproj" />
+  </ItemGroup>
+
+</Project>

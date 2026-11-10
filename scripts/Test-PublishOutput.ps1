@@ -2,8 +2,6 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$PublishDir,
 
-    [string]$ArgyllVersion = "Argyll_V3.5.0",
-
     [switch]$SkipLaunchSmoke
 )
 
@@ -114,35 +112,23 @@ $requiredFiles = @(
     "Gloam.Interop.dll",
     "README.md",
     "LICENSE.txt",
-    "THIRD_PARTY_NOTICES.txt",
-    "srgb_to_gamma2p2_100_mhc2.icm",
-    "srgb_to_gamma2p2_200_mhc2.icm",
-    "srgb_to_gamma2p2_300_mhc2.icm",
-    "srgb_to_gamma2p2_400_mhc2.icm",
-    "srgb_to_gamma2p2_sdr.icm",
-    "srgb_to_gamma2p2_unspecified.icm",
-    "argyll_cache\$ArgyllVersion\bin\dispwin.exe",
-    "argyll_cache\$ArgyllVersion\bin\spotread.exe"
+    "THIRD_PARTY_NOTICES.txt"
 )
 
 foreach ($file in $requiredFiles) {
     Test-RequiredFile $file
 }
 
-Test-RequiredText "THIRD_PARTY_NOTICES.txt" "ArgyllCMS" "ArgyllCMS third-party notice"
-Test-RequiredText "THIRD_PARTY_NOTICES.txt" "GNU Affero General Public License|AGPL" "ArgyllCMS AGPL license reference"
+Test-RequiredText "THIRD_PARTY_NOTICES.txt" "Hardcodet\.NotifyIcon\.Wpf" "tray icon library notice"
 
-$profileFiles = Get-ChildItem -LiteralPath $publishRoot -Filter "*.icm" -File
-if ($profileFiles.Count -lt 6) {
-    Add-Failure "Expected at least 6 bundled ICM templates, found $($profileFiles.Count)."
+# What older releases shipped and this one must not: the ArgyllCMS that calibration used and
+# the MHC2 profile templates. The setup also deletes them from an installation it updates.
+if (Test-Path -LiteralPath (Join-Path $publishRoot "argyll_cache")) {
+    Add-Failure "The package still contains argyll_cache."
 }
-
-$argyllBin = Join-Path $publishRoot "argyll_cache\$ArgyllVersion\bin"
-if (Test-Path -LiteralPath $argyllBin -PathType Container) {
-    $unexpectedNestedRoot = Join-Path $argyllBin $ArgyllVersion
-    if (Test-Path -LiteralPath $unexpectedNestedRoot) {
-        Add-Failure "Argyll tools appear to be nested incorrectly under '$unexpectedNestedRoot'."
-    }
+$profileFiles = @(Get-ChildItem -LiteralPath $publishRoot -Filter "*.icm" -File)
+if ($profileFiles.Count -gt 0) {
+    Add-Failure "The package still contains ICM templates: $($profileFiles.Name -join ', ')."
 }
 
 Test-LaunchSmoke

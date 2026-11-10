@@ -4,7 +4,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Text.Json.Nodes;
 using Gloam.Core;
-using Gloam.Core.Calibration;
+using System.Text.RegularExpressions;
 using Gloam.Interop;
 using Xunit;
 
@@ -24,9 +24,18 @@ namespace Gloam.Tests
             Assert.DoesNotContain(userProfile, result, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain(localAppData, result, StringComparison.OrdinalIgnoreCase);
             if (!string.IsNullOrWhiteSpace(Environment.UserName))
-                Assert.DoesNotContain(Environment.UserName, result, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotMatch(WholeWord(Environment.UserName), result);
             Assert.Contains("%USERPROFILE%", result);
             Assert.Contains("%LOCALAPPDATA%", result);
+        }
+
+        [Fact]
+        public void SanitizeText_ReplacesAShortUserNameOnlyAsAWord()
+        {
+            string result = DiagnosticsBundle.SanitizeText(
+                "user=me; signed in as ME.\nDocuments\\name\\some_me_file", "me");
+
+            Assert.Equal("user=%USERNAME%; signed in as %USERNAME%.\nDocuments\\name\\some_me_file", result);
         }
 
         [Fact]
@@ -41,83 +50,6 @@ namespace Gloam.Tests
             Assert.DoesNotContain(displayPath, result, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain(monitorPath, result, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("monitor-", result);
-        }
-
-        [Fact]
-        public void BuildCalibrationReportSummaryCsv_SanitizesPathsAndEscapesFields()
-        {
-            string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            var report = BuildReport($"{userProfile}\\Displays\\Panel, One", "Panel, One");
-
-            string csv = DiagnosticsBundle.BuildCalibrationReportSummaryCsv(new[] { report });
-
-            Assert.Contains("monitor_device_path_hash", csv);
-            Assert.Contains("\"Panel, One\"", csv);
-            Assert.DoesNotContain(userProfile, csv, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("Displays", csv, StringComparison.OrdinalIgnoreCase);
-            Assert.Contains("2.399", csv);
-            Assert.Contains("0.312", csv);
-            Assert.Contains("0.329", csv);
-        }
-
-        [Fact]
-        public void BuildDetailedVerificationCsv_ExportsPatchRowsWithoutRawMonitorPath()
-        {
-            string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            var report = BuildReport($"{userProfile}\\Displays\\PanelTwo", "Panel Two");
-
-            string csv = DiagnosticsBundle.BuildDetailedVerificationCsv(new[] { report });
-
-            Assert.Contains("patch_index,patch_name,category,delta_e", csv);
-            Assert.Contains("0,\"Skin, bright\",MemoryColor,1.25", csv);
-            Assert.Contains("1,Blue Primary,Primary,2.75", csv);
-            Assert.DoesNotContain(userProfile, csv, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("PanelTwo", csv, StringComparison.OrdinalIgnoreCase);
-        }
-
-        [Fact]
-        public void ReportCsvExports_BlankNonFiniteMetrics()
-        {
-            var report = BuildReport(@"DISPLAY\CORRUPT", "Corrupt Metrics");
-            report.MeasuredCharacteristics = new DisplayCharacteristics
-            {
-                MeasuredRed = new Chromaticity(0.64, 0.33),
-                MeasuredGreen = new Chromaticity(0.30, 0.60),
-                MeasuredBlue = new Chromaticity(0.15, 0.06),
-                MeasuredWhite = new Chromaticity(0.3127, 0.3290),
-                PeakLuminance = double.PositiveInfinity,
-                BlackLevel = double.NaN,
-                MeasuredGamma = double.NegativeInfinity
-            };
-            report.ReportSummary!.AvgDeltaE = double.NaN;
-            report.ReportSummary.MaxDeltaE = double.PositiveInfinity;
-            report.ReportSummary.DetailedPatches =
-            [
-                new VerifiedPatchResult { Name = "Corrupt", Category = "Primary", DeltaE = double.NaN },
-                new VerifiedPatchResult { Name = "Valid", Category = "Primary", DeltaE = 1.25 }
-            ];
-
-            string summaryCsv = DiagnosticsBundle.BuildCalibrationReportSummaryCsv(new[] { report });
-            string detailedCsv = DiagnosticsBundle.BuildDetailedVerificationCsv(new[] { report });
-            string summaryData = string.Join('\n', summaryCsv.Split(["\r\n", "\n"], StringSplitOptions.None).Skip(1));
-            string detailedData = string.Join('\n', detailedCsv.Split(["\r\n", "\n"], StringSplitOptions.None).Skip(1));
-
-            Assert.DoesNotContain("NaN", summaryData, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("Infinity", summaryData, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("NaN", detailedData, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("Infinity", detailedData, StringComparison.OrdinalIgnoreCase);
-            Assert.Contains("Valid,Primary,1.25", detailedCsv);
-        }
-
-        [Fact]
-        public void BuildDetailedVerificationCsv_ReturnsEmptyWhenNoDetailedPatchesExist()
-        {
-            var report = BuildReport(@"DISPLAY\NO-DETAILED", "No Detailed");
-            report.ReportSummary!.DetailedPatches = null;
-
-            string csv = DiagnosticsBundle.BuildDetailedVerificationCsv(new[] { report });
-
-            Assert.Equal(string.Empty, csv);
         }
 
         [Fact]
@@ -145,7 +77,7 @@ namespace Gloam.Tests
                 DisplayConfigSourceId = 9
             };
 
-            string manifest = DiagnosticsBundle.BuildManifest(new[] { monitor }, includeCalibrationReports: true);
+            string manifest = DiagnosticsBundle.BuildManifest(new[] { monitor });
             var root = JsonNode.Parse(manifest)!;
             var mon = root["Monitors"]![0]!;
 
@@ -339,51 +271,8 @@ namespace Gloam.Tests
             }
         }
 
-        private static CalibrationProfile BuildReport(string monitorDevicePath, string monitorName)
-        {
-            return new CalibrationProfile
-            {
-                MonitorDevicePath = monitorDevicePath,
-                MonitorName = monitorName,
-                Target = StandardTargets.SrgbGamma22,
-                CreatedAt = new DateTime(2026, 06, 28, 20, 30, 00, DateTimeKind.Utc),
-                LastCalibratedAt = new DateTime(2026, 06, 28, 21, 00, 00, DateTimeKind.Utc),
-                ColorimeterModel = "i1 Display Pro",
-                SoftwareVersion = "9.9.9-test",
-                PatchCount = 128,
-                QualityGrade = CalibrationGrade.A,
-                MeasuredCharacteristics = new DisplayCharacteristics
-                {
-                    MeasuredRed = new Chromaticity(0.64, 0.33),
-                    MeasuredGreen = new Chromaticity(0.30, 0.60),
-                    MeasuredBlue = new Chromaticity(0.15, 0.06),
-                    MeasuredWhite = new Chromaticity(0.3127, 0.3290),
-                    PeakLuminance = 203.5,
-                    BlackLevel = 0.031,
-                    MeasuredGamma = 2.4
-                },
-                ReportSummary = new CalibrationReportSummary
-                {
-                    AvgDeltaE = 0.9,
-                    MaxDeltaE = 2.1,
-                    GrayscaleDeltaE = 0.7,
-                    PrimaryDeltaE = 1.2,
-                    AfterAvgDeltaE = 0.6,
-                    AfterMaxDeltaE = 1.8,
-                    AfterGrayscaleDeltaE = 0.5,
-                    AfterPrimaryDeltaE = 1.0,
-                    DetailedGrayscaleDeltaE = 0.55,
-                    DetailedPrimariesDeltaE = 1.1,
-                    DetailedSaturationDeltaE = 1.3,
-                    DetailedMemoryColorsDeltaE = 0.8,
-                    DetailedPatches = new()
-                    {
-                        new VerifiedPatchResult { Name = "Skin, bright", Category = "MemoryColor", DeltaE = 1.25 },
-                        new VerifiedPatchResult { Name = "Blue Primary", Category = "Primary", DeltaE = 2.75 }
-                    }
-                }
-            };
-        }
+        private static Regex WholeWord(string word) =>
+            new(@"(?<![\p{L}\p{N}_])" + Regex.Escape(word) + @"(?![\p{L}\p{N}_])", RegexOptions.IgnoreCase);
 
         private static string CreateTempDirectory()
         {

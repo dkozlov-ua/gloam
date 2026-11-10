@@ -10,8 +10,7 @@
       Gloam-X.Y.Z\              the package, staged: what the setup installs
       Gloam-X.Y.Z-setup.exe     the setup - the one asset a GitHub release carries
 
-    WHAT GOES IN is a self-contained, multi-file `dotnet publish` of the app, the
-    bundled ArgyllCMS (downloaded and checked against a pinned SHA-256), README,
+    WHAT GOES IN is a self-contained, multi-file `dotnet publish` of the app, README,
     LICENSE and THIRD_PARTY_NOTICES, compiled into a setup by Inno Setup 6 from
     installer\Gloam.iss.
 
@@ -29,11 +28,6 @@ param(
 $ErrorActionPreference = "Stop"
 
 $projectPath = "src\Gloam\Gloam.csproj"
-$argyllVersion = "Argyll_V3.5.0"
-$argyllUrl = "https://www.argyllcms.com/${argyllVersion}_win64_exe.zip"
-$argyllZip = "argyll_cache_3.5.0.zip"
-$argyllExtractDir = "argyll_cache_3.5.0"
-$argyllSha256 = "C80F78BA30E715079A00A14C2E7C9F533C58E6C8FDBC27F2D32B3D7813F9D132"
 
 # --- Helper Functions ---
 
@@ -80,33 +74,6 @@ function Remove-RepoChildDirectoryIfExists([string]$Path, [string]$Description) 
     return $fullPath
 }
 
-function Download-Argyll {
-    if (-not (Test-Path -LiteralPath $argyllZip -PathType Leaf)) {
-        Write-Host "Downloading ArgyllCMS..."
-        Invoke-WebRequest -Uri $argyllUrl -OutFile $argyllZip
-    }
-
-    # Verify integrity BEFORE extracting. Never run Expand-Archive on unverified content,
-    # and never trust a pre-existing cached zip or extract dir - a poisoned cache in the
-    # build workspace would otherwise be bundled into a release. Fail closed.
-    $actualHash = (Get-FileHash -LiteralPath $argyllZip -Algorithm SHA256).Hash
-    if ($actualHash -ne $argyllSha256) {
-        throw "Argyll archive integrity check failed (SHA-256 $actualHash). Delete '$argyllZip' and retry."
-    }
-
-    # Re-extract from scratch so a stale/tampered extract directory is never reused.
-    Remove-RepoChildDirectoryIfExists $argyllExtractDir "Argyll extract directory" | Out-Null
-    Write-Host "Extracting ArgyllCMS..."
-    Expand-Archive -LiteralPath $argyllZip -DestinationPath $argyllExtractDir
-
-    $root = Join-Path $argyllExtractDir $argyllVersion
-    if (-not (Test-Path -LiteralPath (Join-Path $root "bin\dispwin.exe") -PathType Leaf) -or
-        -not (Test-Path -LiteralPath (Join-Path $root "bin\spotread.exe") -PathType Leaf)) {
-        throw "Argyll archive is missing dispwin.exe or spotread.exe"
-    }
-    return $root
-}
-
 # The Inno Setup compiler: on PATH, or where its installer put it (per user or for everyone).
 function Find-Iscc {
     $cmd = Get-Command ISCC.exe -ErrorAction SilentlyContinue
@@ -149,12 +116,9 @@ $OutDir = Resolve-RepoChildPath $OutDir "Output directory"
 $name = "Gloam-$Version"
 $stage = Remove-RepoChildDirectoryIfExists (Join-Path $OutDir $name) "Package staging directory"
 $setup = Join-Path $OutDir "$name-setup.exe"
-$argyllZip = Resolve-RepoChildPath $argyllZip "Argyll cache archive"
-$argyllExtractDir = Resolve-RepoChildPath $argyllExtractDir "Argyll extract directory"
 
 # 1. Publish self-contained and MULTI-FILE, straight into the staging folder. Multi-file
-#    rather than PublishSingleFile: the bundled ArgyllCMS tools and the ICM templates sit
-#    beside Gloam.exe anyway, and a single-file host extracts its native parts to a temp
+#    rather than PublishSingleFile: a single-file host extracts its native parts to a temp
 #    folder on every launch.
 Write-Host "--- Publishing (self-contained, multi-file) v$Version ---"
 dotnet publish $projectPath -c Release -r win-x64 --self-contained true --output $stage `
@@ -162,23 +126,16 @@ dotnet publish $projectPath -c Release -r win-x64 --self-contained true --output
     /p:DebugType=None
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed ($LASTEXITCODE)" }
 
-# 2. Bundle docs and ArgyllCMS. (ICM templates are already copied to the output by the
-#    csproj.)
+# 2. Bundle the docs.
 Copy-Item -LiteralPath (Join-Path $repoRoot "README.md") -Destination $stage
 Copy-Item -LiteralPath (Join-Path $repoRoot "LICENSE.txt") -Destination $stage
 Copy-Item -LiteralPath (Join-Path $repoRoot "THIRD_PARTY_NOTICES.txt") -Destination $stage
-
-$argyllRoot = Download-Argyll
-$bundleRoot = Join-Path $stage "argyll_cache\$argyllVersion"
-Write-Host "Bundling $argyllVersion from $argyllRoot"
-New-Item -ItemType Directory -Path (Split-Path $bundleRoot) -Force | Out-Null
-Copy-Item -LiteralPath $argyllRoot -Destination $bundleRoot -Recurse
 
 # 3. Does it start. The launch smoke runs Gloam.exe from the staging folder, so the
 #    file list is taken before it and must be the same after: anything the smoke
 #    leaves there would otherwise ship.
 $files = Get-PackageFiles $stage
-& (Join-Path $repoRoot "scripts\Test-PublishOutput.ps1") -PublishDir $stage -ArgyllVersion $argyllVersion
+& (Join-Path $repoRoot "scripts\Test-PublishOutput.ps1") -PublishDir $stage
 $after = Get-PackageFiles $stage
 $extra = @(Compare-Object -ReferenceObject $files -DifferenceObject $after | ForEach-Object { $_.InputObject })
 if ($extra.Count -gt 0) {

@@ -11,44 +11,24 @@ actionable.
 **What you are seeing:** a blue SmartScreen dialog with a **Don't run** button and no
 obvious way past it.
 
-**Why:** SmartScreen weighs a signature's *reputation*, not just its validity. A correctly
-signed application from a publisher Microsoft has not seen at volume still gets flagged
-until enough people have installed it. New releases can briefly re-trigger it.
+**Why:** Gloam's releases are not code-signed, and SmartScreen flags unsigned setups it has
+not seen downloaded at volume.
 
-**Do this:** click **More info**, confirm the publisher line reads the expected verified
-publisher, then click **Run anyway**. If the publisher line is missing or reads something
-else, stop. Do not run it, and tell us where you downloaded it from. Official builds come
-only from the [releases page](https://github.com/halideworks/gloam/releases).
+**Do this:** click **More info**, then **Run anyway**, for a setup you downloaded from the
+[releases page](https://github.com/dkozlov-ua/gloam/releases). Updates installed from
+Gloam itself are not stopped. Official builds come only from that page; if you got the setup
+anywhere else, do not run it.
 
 ---
 
-## My profile stopped applying after a Windows update
+## I can't find Gloam's window
 
-**What you are seeing:** colors were right, Windows updated, now they are not, and Gloam
-still shows the calibration as installed.
+Gloam lives in the notification area. Left-click its icon to open the panel; it opens by the
+clock and closes again when you click elsewhere or press Esc. If the icon is hidden in the
+overflow (the **^** arrow), drag it onto the taskbar to keep it visible. Starting Gloam from
+the Start menu while it is running also opens the panel.
 
-**Why:** Windows owns the color-profile association, and feature updates, driver updates,
-and display re-detection can all drop or reorder it. Gloam's own record of "this profile
-is installed" is a record of what it did, not proof that Windows is still honoring it.
-That is exactly the gap the report's activation sentinel is for: it compares the native
-and verified measurements on matching patches and warns when an inaccurate panel did not
-measurably move toward target after installation.
-
-**Do this, in order:**
-
-1. Open the dashboard and check the display's calibration status. If it no longer shows an
-   active profile, re-install it from the calibration report's **Apply** button.
-2. If Gloam still claims it is applied but the display looks wrong, do not trust either
-   side. Measure instead: open the report and use **Re-verify** with the meter connected. That
-   re-measures through whatever is actually active now and refreshes the numbers.
-3. If verification comes back much worse than the report's recorded values, the profile is
-   not being applied even though it is associated. Toggle the display's gamma mode to
-   **Windows Default** and back, which forces a clean re-apply.
-4. If it still disagrees, re-run calibration. A Windows update that changed the HDR
-   pipeline has changed the thing you calibrated against.
-
-Note that a *small* regression here is normal and is not proof of anything: display drift
-and meter noise both reduce apparent improvement. The sentinel is a signal, not a verdict.
+At logon Gloam starts in the tray without opening the panel, by design.
 
 ---
 
@@ -64,13 +44,8 @@ put it back on exit. So do some driver control panels and overlay tools.
 a ten-second cadence and restores what it applied when something else stomps it, so the
 correction should return on its own within a few seconds. Wait for it before intervening.
 
-If it does not come back, or you need it back *now*:
-
-- Re-select your gamma mode from the tray, or click 2.2 / 2.4 on the monitor's card in the
-  Dashboard, to re-apply it directly.
-
-The ramp guard deliberately stands down for a display that is mid-calibration, so if this
-happens while a calibration is running, that is expected. Finish or cancel the run first.
+If it does not come back, or you need it back *now*, open the panel and use the refresh
+button in the Display section: it finds the displays again and re-applies every one.
 
 ---
 
@@ -80,68 +55,45 @@ happens while a calibration is running, that is expected. Finish or cancel the r
 saturated, or with a visible color cast.
 
 **Why:** driver installs commonly reset the hardware gamma ramp, and can also reset or
-re-enumerate the display, which changes what Windows thinks the display is and can drop
-the profile association with it. Vendor control panels (NVIDIA, AMD, Intel) also apply
-their own color settings that compose with Gloam's, and a driver install can re-enable
-those.
+re-enumerate the display. Vendor control panels (NVIDIA, AMD, Intel) also apply their own
+color settings that compose with Gloam's, and a driver install can re-enable those.
 
 **Do this, in order:**
 
 1. Check the vendor control panel first. If its own digital vibrance, color enhancement, or
    custom gamma setting got turned back on, turn it off. Two corrections stacked will
    never look right, and Gloam cannot see or undo that one.
-2. Re-select the gamma mode from the tray to force a re-apply.
-3. If you have an installed calibration, follow the "profile stopped applying" steps above;
-   a driver update drops profile associations the same way a Windows update does.
-4. If the display was re-enumerated, Gloam may see it as a new monitor and have no saved
-   settings for it. Re-apply the gamma mode and re-install the calibration profile.
+2. Use the refresh button in the panel's Display section to re-apply.
+3. If the display was re-enumerated, Gloam may see it as a new monitor with no saved
+   settings. Pick its gamma and brightness again.
 
 ---
 
-## Night mode is not changing anything
+## Colors are still corrected after I set gamma to 2.2 (or something else stacks)
 
-**Do this:**
+Older Gloam versions could calibrate a display with a colorimeter and install an MHC2 color
+profile for it. Calibration has been removed, but a profile installed earlier stays in
+Windows, which applies it whether or not Gloam runs. To remove it, open **Color
+Management** (`colorcpl`), choose the display on the **Devices** tab, and remove the profile
+whose name starts with `Gloam`. For a display in HDR mode, also check **Settings > System >
+Display > HDR**, where Windows lists the display's color profile.
 
-1. Update to a version newer than v1.8.1 if you are on an SDR (non-HDR) display. Older
-   versions could lose the entire night shift on SDR: Windows validates hardware gamma
-   ramps and rejects any write that deviates more than half of full scale from neutral,
-   and the default 2700K setting sat just past that limit, so nothing applied at all.
-   Current versions apply the closest ramp Windows accepts instead (the difference is a
-   slight loss of warmth at pure white only).
-2. Check whether Windows Night Light is also on. Two warming corrections stack, and
-   Windows applies its own after Gloam. Turn Windows Night Light off, since Gloam replaces it.
-3. Check whether the foreground application is on your night-mode exclusion list. Excluded
-   applications suppress night mode while they are focused, by design.
-4. Check whether Gameplay Lock is holding the output steady for an active game session.
-   That is also by design.
-
-**Optional, for the full warm range on SDR:** Windows' gamma-ramp limit itself can be
-lifted with the same registry override f.lux and ArgyllCMS document. As Administrator, add
-a DWORD value named `GdiIcmGammaRange` set to `0x100` under
-`HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ICM`, then sign out and back in. Gloam
-detects the override and stops limiting the ramp. Without it, temperatures below roughly
-2750K are applied at slightly reduced strength near pure white.
-
-**Still stuck?** Right-click the tray icon and choose **Export Diagnostics**, then attach
-the bundle it writes to `%LOCALAPPDATA%\Gloam\Diagnostics` to a GitHub issue. The bundle
-includes `app.log`; the line to look for is
-`NativeGammaRamp: SetDeviceGammaRamp rejected` (a driver refused the ramp) or
-`Windows' gamma-range validation limits the requested correction` (the limiter engaged).
+Windows Night Light, and Gloam versions with night mode, are separate: Gloam no longer warms
+the display or turns Night Light off.
 
 ---
 
-## Calibration will not start, or cannot find my meter
+## Brightness at 10–20% looks less dim than I asked for on an SDR display
 
-**Do this:**
+Windows rejects gamma ramps that stray too far from neutral, and very low brightness on an
+SDR display goes past that limit. Gloam then applies the closest ramp Windows accepts, so the
+darkest settings come out a little brighter than asked, mostly near white. HDR displays are
+not affected.
 
-1. Unplug and re-plug the colorimeter, then use **Refresh** in the calibration setup
-   window. Meters that were connected through a hub or a KVM are the usual culprits.
-2. If Gloam reports the driver is missing, accept the driver-install prompt. ArgyllCMS
-   needs its own USB driver for most instruments.
-3. Close any other software that talks to the meter. DisplayCAL, the vendor's own
-   calibration utility, and Gloam cannot hold the device at the same time.
-4. If ArgyllCMS itself is missing, start a calibration once and let Gloam download it. The
-   release package bundles it, but a build run from source may need the download.
+**Optional, for the full range on SDR:** the limit can be lifted with the registry override
+f.lux and ArgyllCMS document. As Administrator, add a DWORD value named `GdiIcmGammaRange`
+set to `0x100` under `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ICM`, then sign out
+and back in. Gloam detects the override and stops limiting the ramp.
 
 ---
 
@@ -149,26 +101,24 @@ includes `app.log`; the line to look for is
 
 | What | Where |
 | --- | --- |
-| Settings, logs, reports, corrections | `%LOCALAPPDATA%\Gloam` |
+| Settings and logs | `%LOCALAPPDATA%\Gloam` |
 | Log file | `%LOCALAPPDATA%\Gloam\app.log` |
-| Calibration reports | `%LOCALAPPDATA%\Gloam\reports` |
-| Measurement CSVs | `%LOCALAPPDATA%\Gloam\reports\measurements` |
 | Exported diagnostics bundles | `%LOCALAPPDATA%\Gloam\Diagnostics` |
 | Installation | `%LOCALAPPDATA%\Programs\Gloam` |
 | Update setup log | `%LOCALAPPDATA%\Gloam\Updates\Gloam-setup.log` |
 
 The two directories are separate on purpose: uninstalling Gloam removes the installed files
-from `Programs\Gloam` and leaves `Gloam`, so an uninstall never destroys your calibration
-data.
+from `Programs\Gloam` and leaves `Gloam`, so an uninstall never destroys your settings.
 
 ---
 
 ## Getting help
 
-Use **Export Diagnostics** from the tray menu. It writes a zip to
-`%LOCALAPPDATA%\Gloam\Diagnostics` containing the log, sanitized settings, monitor and
-display-configuration state, and (if you choose **Include Reports**) your calibration
-report snapshots and verification CSVs.
+Click the bug button at the bottom of Gloam's panel to export diagnostics. It writes a zip
+to `%LOCALAPPDATA%\Gloam\Diagnostics` containing the log, sanitized settings, and monitor and
+display-configuration state, and opens the folder. In the log, the lines to look for are
+`NativeGammaRamp: SetDeviceGammaRamp rejected` (a driver refused the ramp) and
+`Windows' gamma-range validation limits the requested correction` (the limiter engaged).
 
 The bundle is text-only and is sanitized before it is written, but it does describe your
 displays and your configuration. Look through it before attaching it to a public issue if

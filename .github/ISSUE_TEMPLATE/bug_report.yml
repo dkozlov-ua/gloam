@@ -6,8 +6,7 @@ body:
     attributes:
       value: |
         Before filing, please check [docs/troubleshooting.md](https://github.com/halideworks/gloam/blob/main/docs/troubleshooting.md).
-        SmartScreen warnings, a profile that stopped applying after a Windows update, and a
-        game resetting your gamma all have known answers there.
+        SmartScreen warnings and a game resetting your gamma have known answers there.
 
         Display problems depend on your Windows build, GPU driver, panel, and HDR state, so
         the fields below are not bureaucracy. Without them a report usually turns into
@@ -20,7 +19,7 @@ body:
       description: What you did, what you expected, and what you got instead.
       placeholder: |
         1. Turned HDR on in Windows display settings
-        2. Selected Gamma 2.2 for my main monitor from the tray
+        2. Chose gamma 2.2 for my main display in Gloam's window
         3. Expected shadows to darken; nothing changed
     validations:
       required: true
@@ -29,7 +28,7 @@ body:
     id: gloam-version
     attributes:
       label: Gloam version
-      description: Tray menu → About, or the version in the installer filename.
+      description: Top right of Gloam's window, or the version in the setup's filename.
       placeholder: "1.0.0"
     validations:
       required: true
@@ -88,7 +87,7 @@ body:
     attributes:
       label: Diagnostics bundle
       description: |
-        Tray menu → **Export Diagnostics**. It writes a zip to `%LOCALAPPDATA%\Gloam\Diagnostics`
+        **Export diagnostics** (the bug button at the bottom of Gloam's window). It writes a zip to `%LOCALAPPDATA%\Gloam\Diagnostics`
         containing the log, sanitized settings, and your monitor and display-configuration
         state. Drag it into this issue.
 
@@ -97,15 +96,6 @@ body:
       options:
         - label: I have attached a diagnostics bundle to this issue
           required: true
-
-  - type: textarea
-    id: calibration-context
-    attributes:
-      label: Calibration details
-      description: Only if the issue involves calibration. Meter model, target, preset, and whether a `.ccss`/`.ccmx` meter correction was used.
-      placeholder: "i1 Display Pro, HDR Desktop PQ (sRGB gamut), Thorough preset, no meter correction"
-    validations:
-      required: false
 
   - type: textarea
     id: anything-else

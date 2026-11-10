@@ -7,9 +7,8 @@ namespace Gloam.Core
     /// <summary>
     /// Applies per-channel LUTs to a display's hardware gamma ramp via the Win32
     /// SetDeviceGammaRamp API — the same call ArgyllCMS dispwin makes after parsing a
-    /// .cal file, so the resulting hardware state is identical to the dispwin path
-    /// while avoiding the ~100-500ms process spawn per apply. DispwinRunner uses this
-    /// first and falls back to dispwin only when the native call fails.
+    /// .cal file, so the hardware state is identical to what dispwin would load.
+    /// GammaRampWriter writes every ramp through it.
     /// </summary>
     public static class NativeGammaRamp
     {
@@ -20,10 +19,11 @@ namespace Gloam.Core
         // rejects the whole call and NOTHING applies. Measured on Windows 11 22621
         // (monotonicity is NOT required; the bound is per entry, anchored at the index).
         //
-        // This is why night mode used to silently no-op on SDR displays: 2700K cuts blue to
-        // ~0.21 linear, whose gamma-encoded ramp tops out at 0.489 of full scale — a hair
-        // below the 0.496 the envelope allows at index 255. The HDR path never hit it
-        // because its PQ LUTs stay near identity at the top (headroom passthrough).
+        // This is why the former night mode used to silently no-op on SDR displays: 2700K
+        // cut blue to ~0.21 linear, whose gamma-encoded ramp tops out at 0.489 of full scale
+        // — a hair below the 0.496 the envelope allows at index 255. Deep dimming on SDR
+        // reaches the same wall. The HDR path never hits it because its PQ LUTs stay near
+        // identity at the top (headroom passthrough).
         internal const int GdiEnvelopeHalfRangeHighBytes = 128;
 
         /// <summary>Test seam for the GdiIcmGammaRange registry probe.</summary>
@@ -111,7 +111,7 @@ namespace Gloam.Core
         /// <summary>
         /// Sets the hardware gamma ramp for the given GDI display (e.g. @"\\.\DISPLAY1").
         /// Returns false if the device DC could not be created or the driver rejected
-        /// the ramp — callers should fall back to dispwin in that case.
+        /// the ramp; the caller then writes again on the next apply.
         /// </summary>
         public static bool TryApply(string deviceName, double[] lutR, double[] lutG, double[] lutB)
         {
@@ -201,7 +201,7 @@ namespace Gloam.Core
                 if (!ok)
                 {
                     // Typically the GDI gamma-range validation rejecting an aggressive
-                    // ramp; dispwin would hit the same wall, but let the fallback try.
+                    // ramp, which BuildRampChannel's envelope clamp should have prevented.
                     Log.Error($"NativeGammaRamp: SetDeviceGammaRamp rejected for {deviceName}");
                 }
                 return ok;

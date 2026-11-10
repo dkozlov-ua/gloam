@@ -16,8 +16,8 @@ namespace Gloam.Core
     }
 
     /// <summary>
-    /// Scripting entry point: <c>Gloam.exe --profile-set normal|media|auto</c>. A manual
-    /// choice is sticky until <c>auto</c> restores automatic switching.
+    /// Scripting entry point: <c>Gloam.exe --profile-set normal|media</c>. The choice is
+    /// sticky: it holds until another profile is set.
     /// </summary>
     public static class ProfileCommandLine
     {
@@ -62,7 +62,7 @@ namespace Gloam.Core
                 result = TryParseValue(value, out DisplayProfileSelection selection)
                     ? new ProfileCommand(true, selection, null)
                     : new ProfileCommand(true, null,
-                        $"{Option} expects normal, media, or auto; got '{value ?? string.Empty}'.");
+                        $"{Option} expects normal or media; got '{value ?? string.Empty}'.");
             }
             return result;
         }
@@ -77,12 +77,14 @@ namespace Gloam.Core
                 case "media":
                     selection = DisplayProfileSelection.Media;
                     return true;
+                // Automatic switching (Media while a library game ran) is gone. Scripts that
+                // still end a game session with "auto" mean "back to normal".
                 case "auto":
                 case "automatic":
-                    selection = DisplayProfileSelection.Automatic;
+                    selection = DisplayProfileSelection.Normal;
                     return true;
                 default:
-                    selection = DisplayProfileSelection.Automatic;
+                    selection = DisplayProfileSelection.Normal;
                     return false;
             }
         }
@@ -109,9 +111,8 @@ namespace Gloam.Core
         /// <summary>The wire and command-line spelling of a selection.</summary>
         public static string ToArgument(DisplayProfileSelection selection) => selection switch
         {
-            DisplayProfileSelection.Normal => "normal",
             DisplayProfileSelection.Media => "media",
-            _ => "auto"
+            _ => "normal"
         };
     }
 
@@ -140,7 +141,7 @@ namespace Gloam.Core
             get
             {
                 using Process current = Process.GetCurrentProcess();
-                return $"Gloam.ProfileCommand.{current.SessionId}";
+                return $"Gloam{AppProfile.Suffix}.ProfileCommand.{current.SessionId}";
             }
         }
 

@@ -63,8 +63,7 @@ namespace Gloam.Core
 
         /// <summary>
         /// The display's reported gamut from its EDID color-characteristics block, if parsed.
-        /// Lets the calibration UI recommend reachable targets BEFORE measuring (the
-        /// colorimeter still measures the true gamut during calibration).
+        /// Diagnostics bundles record it.
         /// </summary>
         public EdidColorInfo? EdidColor { get; set; }
 
@@ -79,7 +78,7 @@ namespace Gloam.Core
 
     /// <summary>
     /// Display chromaticities (CIE 1931 xy) reported in the EDID color-characteristics block.
-    /// Manufacturer-reported, so approximate — good enough to pre-filter calibration targets.
+    /// Manufacturer-reported, so approximate.
     /// </summary>
     public class EdidColorInfo
     {

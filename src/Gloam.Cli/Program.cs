@@ -6,14 +6,13 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using Gloam.Core;
-using Gloam.Core.Calibration;
 
 namespace Gloam.Cli
 {
     /// <summary>
-    /// Headless diagnostics for the color pipeline. It can dump LUTs, run CI-friendly LUT
-    /// invariants, compare scenarios, and inspect night-mode / Ultra Night multipliers without
-    /// starting the tray app or touching display state.
+    /// Headless diagnostics for the gamma pipeline. It can dump LUTs, run CI-friendly LUT
+    /// invariants, and compare brightness / dark-area visibility scenarios without starting
+    /// the tray app or touching display state.
     /// </summary>
     static class Program
     {
@@ -33,8 +32,6 @@ namespace Gloam.Cli
                     "sweep" => RunSweep(args),
                     "compare" => RunCompare(args),
                     "check-lut" => RunCheckLut(args),
-                    "night" => RunNight(args),
-                    "golden-ingest" => RunGoldenIngest(args),
                     // Back-compat: old `Cli 2.2 200 [out.csv]` form still works
                     _ => RunLegacy(args)
                 };
@@ -50,46 +47,38 @@ namespace Gloam.Cli
 
         private static void PrintHelp()
         {
-            Console.WriteLine("Gloam CLI - headless color pipeline diagnostics");
+            Console.WriteLine("Gloam CLI - headless gamma pipeline diagnostics");
             Console.WriteLine();
             Console.WriteLine("Usage:");
             Console.WriteLine("  cli lut      <gamma> <white> [options]   Dump one LUT");
-            Console.WriteLine("  cli sweep    <gamma> <white>             Matrix of dimming/temp scenarios");
+            Console.WriteLine("  cli sweep    <gamma> <white>             Matrix of brightness/dark-area scenarios");
             Console.WriteLine("  cli compare  <gamma> <white> <A> <B>     Side-by-side diff of two scenarios");
             Console.WriteLine("  cli check-lut <gamma> <white> [options]  Validate LUT invariants, exit non-zero on failure");
-            Console.WriteLine("  cli night    <kelvin> [options]          Inspect night-mode multipliers");
-            Console.WriteLine("  cli golden-ingest <fixtureDir> [options] Create/refresh a golden-sample regression fixture");
+            Console.WriteLine("  cli <gamma> <white> [out.csv]            Legacy form: dump one LUT, optionally to CSV");
             Console.WriteLine();
             Console.WriteLine("Gamma:  2.2 | 2.4 | default");
             Console.WriteLine("White:  nits (e.g. 80, 200, 480)");
             Console.WriteLine();
             Console.WriteLine("Options (lut/check-lut):");
-            Console.WriteLine("  --brightness N      0..100 (default 100)");
-            Console.WriteLine("  --temp T            temperature scale, extended for night mode");
-            Console.WriteLine("  --temp-k K          temperature as Kelvin");
-            Console.WriteLine("  --tint T            -50..+50 (default 0)");
-            Console.WriteLine("  --algorithm NAME    perceptual | ultra | accurate | classic");
-            Console.WriteLine("  --strength N        perceptual strength 0..1");
-            Console.WriteLine("  --ccss PATH         .ccss spectral sample for Ultra Night");
+            Console.WriteLine("  --brightness N      10..100 (default 100)");
+            Console.WriteLine("  --shadow N          dark-area visibility 0..100 % (default 0)");
             Console.WriteLine("  --linear-dim        Use linear instead of perceptual dimming");
-            Console.WriteLine("  --sdr               Generate the SDR path (decode-gamma-calibrate-encode)");
+            Console.WriteLine("  --sdr               Generate the SDR path (decode-gamma-adjust-encode)");
             Console.WriteLine("  --csv PATH          Also write a CSV file");
             Console.WriteLine("  --json PATH|-       Write machine-readable output, or '-' for stdout");
             Console.WriteLine("  --no-chart          Skip the ASCII sparkline");
             Console.WriteLine();
-            Console.WriteLine("Options (night):");
-            Console.WriteLine("  --algorithm NAME    perceptual | ultra | accurate | classic");
-            Console.WriteLine("  --basis NAME        srgb | rec2020");
-            Console.WriteLine("  --strength N        perceptual strength 0..1");
-            Console.WriteLine("  --ccss PATH         .ccss spectral sample for Ultra Night");
-            Console.WriteLine("  --json PATH|-       Write machine-readable output, or '-' for stdout");
+            Console.WriteLine("Scenario shorthand (compare): 'b=50,s=30,lin' means brightness 50,");
+            Console.WriteLine("  dark-area visibility 30 %, linear dimming");
             Console.WriteLine();
-            Console.WriteLine("Scenario shorthand (compare): 'b=50,t=-20' means brightness 50, temp -20");
+            Console.WriteLine("Exit codes: 0 ok, 1 error, 2 check-lut invariant failure");
             Console.WriteLine();
             Console.WriteLine("Examples:");
             Console.WriteLine("  cli sweep 2.2 200");
             Console.WriteLine("  cli lut 2.2 200 --brightness 50 --csv dim50.csv");
-            Console.WriteLine("  cli compare 2.2 200 b=100 b=50");
+            Console.WriteLine("  cli lut 2.4 240 --shadow 40 --sdr");
+            Console.WriteLine("  cli check-lut 2.2 200 --brightness 50 --json -");
+            Console.WriteLine("  cli compare 2.2 200 b=100 b=50,s=30");
         }
 
         // ---------- Legacy path (backward compat with the tiny original CLI) ----------
@@ -122,7 +111,7 @@ namespace Gloam.Cli
                 Mode = ParseGamma(args[1]),
                 WhiteLevel = ParseDouble(args[2])
             };
-            ParseCalOptions(args, 3, opts);
+            ParseLutOptions(args, 3, opts);
             DumpLut(opts);
             return 0;
         }
@@ -136,31 +125,43 @@ namespace Gloam.Cli
             Console.WriteLine($"Sweep: gamma {GammaLabel(mode)}, SDR white {white} nits\n");
 
             Console.WriteLine("-- Brightness (perceptual) --");
-            foreach (var b in new[] { 100.0, 75.0, 50.0, 25.0 })
+            foreach (var b in new[] { 100.0, 75.0, 50.0, 25.0, 10.0 })
             {
                 var opts = new LutOptions { Mode = mode, WhiteLevel = white };
-                opts.Calibration.Brightness = b;
+                opts.Adjustments.Brightness = b;
                 PrintScenarioRow($"brightness={b,3:0}", opts);
             }
 
-            Console.WriteLine("\n-- Temperature (warming) --");
-            foreach (var t in new[] { 0.0, -10.0, -20.0, -30.0, -50.0 })
+            Console.WriteLine("\n-- Brightness (linear) --");
+            foreach (var b in new[] { 100.0, 75.0, 50.0, 25.0, 10.0 })
             {
                 var opts = new LutOptions { Mode = mode, WhiteLevel = white };
-                opts.Calibration.Temperature = t;
-                PrintScenarioRow($"temp={t,4:0}     ", opts);
+                opts.Adjustments.Brightness = b;
+                opts.Adjustments.UseLinearBrightness = true;
+                PrintScenarioRow($"brightness={b,3:0} lin", opts);
             }
 
-            Console.WriteLine("\n-- Combined (night-mode-like) --");
-            foreach (var (b, t) in new[] { (100.0, 0.0), (75.0, -20.0), (50.0, -35.0), (30.0, -50.0) })
+            Console.WriteLine("\n-- Dark-area visibility --");
+            foreach (var s in new[] { 0.0, 25.0, 50.0, 75.0, 100.0 })
             {
                 var opts = new LutOptions { Mode = mode, WhiteLevel = white };
-                opts.Calibration.Brightness = b;
-                opts.Calibration.Temperature = t;
-                PrintScenarioRow($"b={b,3:0} t={t,4:0}", opts);
+                opts.Adjustments.ShadowDetailStrength = s / 100.0;
+                PrintScenarioRow($"shadow={s,3:0}%", opts);
             }
 
-            Console.WriteLine("\nColumns below chart: L=lowest, M=mid (index 512), H=peak (1023)");
+            Console.WriteLine("\n-- Combined (dimmed Media-like) --");
+            foreach (var (b, s) in new[] { (100.0, 0.0), (75.0, 25.0), (50.0, 50.0), (25.0, 75.0), (10.0, 100.0) })
+            {
+                var opts = new LutOptions { Mode = mode, WhiteLevel = white };
+                opts.Adjustments.Brightness = b;
+                opts.Adjustments.ShadowDetailStrength = s / 100.0;
+                PrintScenarioRow($"b={b,3:0} s={s,3:0}%", opts);
+            }
+
+            // The visibility toe only moves values below its pivot (10 % of SDR white), so the
+            // L/M/H columns alone would show no change for it. S sits inside the toe.
+            Console.WriteLine($"\nColumns after chart: L=lowest (index 0), S=shadow (index {ShadowSampleIndex}), " +
+                              "M=mid (index 512), H=peak (1023)");
             return 0;
         }
 
@@ -171,8 +172,8 @@ namespace Gloam.Cli
             var white = ParseDouble(args[2]);
             var optsA = new LutOptions { Mode = mode, WhiteLevel = white };
             var optsB = new LutOptions { Mode = mode, WhiteLevel = white };
-            ApplyScenarioShorthand(optsA.Calibration, args[3]);
-            ApplyScenarioShorthand(optsB.Calibration, args[4]);
+            ApplyScenarioShorthand(optsA.Adjustments, args[3]);
+            ApplyScenarioShorthand(optsB.Adjustments, args[4]);
 
             var lutA = GenerateGreyLut(optsA);
             var lutB = GenerateGreyLut(optsB);
@@ -194,6 +195,7 @@ namespace Gloam.Cli
             Console.WriteLine($"Max |Δ|       : {maxDelta:F4}");
             Console.WriteLine($"Peak A / B    : {lutA[1023]:F4} / {lutB[1023]:F4}  (delta {peakDelta:+0.0000;-0.0000})");
             Console.WriteLine($"Midpoint A / B: {lutA[512]:F4} / {lutB[512]:F4}");
+            Console.WriteLine($"Shadow A / B  : {lutA[ShadowSampleIndex]:F4} / {lutB[ShadowSampleIndex]:F4}  (index {ShadowSampleIndex})");
             return 0;
         }
 
@@ -206,11 +208,9 @@ namespace Gloam.Cli
                 WhiteLevel = ParseDouble(args[2]),
                 ShowChart = false
             };
-            ParseCalOptions(args, 3, opts);
+            ParseLutOptions(args, 3, opts);
 
-            var lut = opts.IsSdr
-                ? LutGenerator.GenerateLut(opts.Mode, opts.WhiteLevel, opts.Calibration, isHdr: false)
-                : LutGenerator.GenerateLut(opts.Mode, opts.WhiteLevel, opts.Calibration, isHdr: true);
+            var lut = GenerateLut(opts);
 
             var stats = new[]
             {
@@ -219,7 +219,33 @@ namespace Gloam.Cli
                 AnalyzeChannel("B", lut.B),
                 AnalyzeChannel("Grey", lut.Grey)
             };
+            // Grey is a reference only; the hardware ramp takes R, G and B.
+            var ramps = new[]
+            {
+                AnalyzeRamp("R", lut.R),
+                AnalyzeRamp("G", lut.G),
+                AnalyzeRamp("B", lut.B)
+            };
+
             var failures = stats.SelectMany(s => s.Failures.Select(f => $"{s.Name}: {f}")).ToList();
+            failures.AddRange(ramps.SelectMany(r => r.Failures.Select(f => $"{r.Name} ramp: {f}")));
+            failures.AddRange(CheckCurveInvariants(opts, lut));
+
+            var warnings = new List<string>();
+            foreach (var ramp in ramps.Where(r => r.EntriesOutsideEnvelope > 0))
+            {
+                string message =
+                    $"{ramp.Name} ramp: {ramp.EntriesOutsideEnvelope} of 256 entries fall outside Windows' gamma-range " +
+                    $"envelope (max bend {ramp.MaxBendCounts} counts); unless GdiIcmGammaRange is unlocked the " +
+                    "display gets the closest accepted ramp, not this curve";
+
+                // The HDR path keeps its PQ LUT near identity at the top (headroom passthrough),
+                // so it never needs the envelope; an overrun there is a pipeline regression.
+                // The SDR path legitimately leaves the envelope at low brightness (white below
+                // ~0.496 of full scale at entry 255), and NativeGammaRamp clamps that by design.
+                if (opts.IsSdr) warnings.Add(message);
+                else failures.Add(message);
+            }
 
             var report = new
             {
@@ -227,10 +253,12 @@ namespace Gloam.Cli
                 gamma = GammaLabel(opts.Mode),
                 sdrWhiteNits = opts.WhiteLevel,
                 path = opts.IsSdr ? "sdr" : "hdr",
-                calibration = DescribeCalibration(opts.Calibration),
+                adjustments = DescribeAdjustments(opts.Adjustments),
                 passed = failures.Count == 0,
                 failures,
-                channels = stats
+                warnings,
+                channels = stats,
+                ramps
             };
 
             if (opts.JsonPath == "-")
@@ -242,11 +270,19 @@ namespace Gloam.Cli
                 Console.WriteLine(failures.Count == 0 ? "PASS: LUT invariants hold." : "FAIL: LUT invariants broke.");
                 foreach (var failure in failures)
                     Console.WriteLine("  " + failure);
+                foreach (var warning in warnings)
+                    Console.WriteLine("  warning: " + warning);
                 foreach (var s in stats)
                 {
                     Console.WriteLine(
                         $"  {s.Name,-4} min={s.Min:F6} max={s.Max:F6} max_step={s.MaxPositiveStep:F6} " +
                         $"max_drop={s.MaxNegativeStep:F6}");
+                }
+                foreach (var r in ramps)
+                {
+                    Console.WriteLine(
+                        $"  {r.Name,-4} ramp[0]={r.First} ramp[255]={r.Last} outside_envelope={r.EntriesOutsideEnvelope} " +
+                        $"max_bend={r.MaxBendCounts}");
                 }
                 if (opts.JsonPath != null) WriteJson(opts.JsonPath, report);
             }
@@ -254,159 +290,11 @@ namespace Gloam.Cli
             return failures.Count == 0 ? 0 : 2;
         }
 
-        private static int RunNight(string[] args)
-        {
-            if (args.Length < 2) throw new ArgumentException("night requires <kelvin>");
-            var opts = new NightOptions { Kelvin = (int)Math.Round(ParseDouble(args[1])) };
-            ParseNightOptions(args, 2, opts);
-
-            opts.Kelvin = NightModeSettings.ClampKelvin(opts.Kelvin);
-            var coefficients = CcssMelanopicEstimator.TryLoad(opts.CcssPath);
-            var multipliers = GetNightMultipliers(opts, coefficients);
-            var melanopic = EstimateRelativeMelanopic(multipliers, coefficients);
-
-            var report = new
-            {
-                command = "night",
-                kelvin = opts.Kelvin,
-                algorithm = opts.Algorithm.ToString(),
-                basis = opts.Basis.ToString(),
-                perceptualStrength = opts.PerceptualStrength,
-                ccss = coefficients?.SourceName,
-                multipliers = new
-                {
-                    red = multipliers.R,
-                    green = multipliers.G,
-                    blue = multipliers.B
-                },
-                channelReduction = new
-                {
-                    red = 1.0 - multipliers.R,
-                    green = 1.0 - multipliers.G,
-                    blue = 1.0 - multipliers.B
-                },
-                relativeMelanopicPerLuminance = melanopic
-            };
-
-            if (opts.JsonPath == "-")
-            {
-                WriteJson(opts.JsonPath, report);
-                return 0;
-            }
-
-            Console.WriteLine($"Night: {opts.Kelvin}K, {opts.Algorithm}, {opts.Basis}");
-            if (opts.Algorithm == NightModeAlgorithm.Perceptual)
-                Console.WriteLine($"  strength: {opts.PerceptualStrength:F2}");
-            Console.WriteLine($"  multipliers: R={multipliers.R:F6} G={multipliers.G:F6} B={multipliers.B:F6}");
-            Console.WriteLine($"  channel cut: R={(1.0 - multipliers.R):P1} G={(1.0 - multipliers.G):P1} B={(1.0 - multipliers.B):P1}");
-            if (melanopic.HasValue)
-                Console.WriteLine($"  relative melanopic/luminance: {melanopic.Value:F3}x D65 white estimate");
-            else if (!string.IsNullOrWhiteSpace(opts.CcssPath))
-                Console.WriteLine("  melanopic estimate: unavailable; CCSS could not be parsed");
-            if (opts.JsonPath != null) WriteJson(opts.JsonPath, report);
-            return 0;
-        }
-
-        // ---------- Golden-sample ingest ----------
-
-        /// <summary>
-        /// Ingests a recorded measurement set into a golden-sample regression fixture, or
-        /// regenerates an existing fixture's baseline. Regeneration is the SANCTIONED way to
-        /// accept numeric pipeline changes: the baseline diff shows up in git review instead
-        /// of tests silently rewriting their own expectations.
-        /// </summary>
-        private static int RunGoldenIngest(string[] args)
-        {
-            if (args.Length < 2)
-                throw new ArgumentException(
-                    "golden-ingest requires <fixtureDir> [--native <csv> --verification <csv> " +
-                    "--target <name> --panel <label> [--hdr] [--sdr-white N] [--instrument <model>] [--meter-correction]]");
-
-            string fixtureDir = args[1];
-            string manifestPath = Path.Combine(fixtureDir, "manifest.json");
-
-            string? nativeCsv = null, verificationCsv = null, targetName = null,
-                panelLabel = null, instrument = null;
-            bool hdrMode = false, meterCorrection = false;
-            double sdrWhite = 200.0;
-
-            for (int i = 2; i < args.Length; i++)
-            {
-                switch (args[i])
-                {
-                    case "--native": nativeCsv = RequireValue(args, ref i, args[i]); break;
-                    case "--verification": verificationCsv = RequireValue(args, ref i, args[i]); break;
-                    case "--target": targetName = RequireValue(args, ref i, args[i]); break;
-                    case "--panel": panelLabel = RequireValue(args, ref i, args[i]); break;
-                    case "--instrument": instrument = RequireValue(args, ref i, args[i]); break;
-                    case "--sdr-white": sdrWhite = ParseDouble(RequireValue(args, ref i, args[i])); break;
-                    case "--hdr": hdrMode = true; break;
-                    case "--meter-correction": meterCorrection = true; break;
-                    default: throw new ArgumentException($"Unknown option: {args[i]}");
-                }
-            }
-
-            GoldenSampleManifest manifest;
-            if (nativeCsv != null || verificationCsv != null)
-            {
-                // Creation mode: copy the recordings in and write a fresh manifest.
-                if (nativeCsv == null || verificationCsv == null || targetName == null || panelLabel == null)
-                    throw new ArgumentException(
-                        "Creating a fixture needs --native, --verification, --target and --panel.");
-
-                Directory.CreateDirectory(fixtureDir);
-                File.Copy(nativeCsv, Path.Combine(fixtureDir, "native-measurements.csv"), overwrite: true);
-                File.Copy(verificationCsv, Path.Combine(fixtureDir, "verification-measurements.csv"), overwrite: true);
-                manifest = new GoldenSampleManifest
-                {
-                    PanelLabel = panelLabel,
-                    TargetName = targetName,
-                    HdrMode = hdrMode,
-                    SdrWhiteNits = sdrWhite,
-                    InstrumentModel = instrument,
-                    HasMeterCorrection = meterCorrection,
-                };
-                manifest.Save(manifestPath);
-            }
-            else
-            {
-                if (!File.Exists(manifestPath))
-                    throw new ArgumentException(
-                        $"No manifest at {manifestPath} - pass --native/--verification/--target/--panel to create the fixture.");
-                manifest = GoldenSampleManifest.Load(manifestPath);
-            }
-
-            var target = StandardTargets.GetByName(manifest.TargetName)
-                ?? throw new ArgumentException($"Unknown calibration target '{manifest.TargetName}'.");
-
-            var native = MeasurementCsvImporter.Load(Path.Combine(fixtureDir, manifest.NativeCsv));
-            var verification = MeasurementCsvImporter.Load(Path.Combine(fixtureDir, manifest.VerificationCsv));
-
-            var baseline = GoldenSampleBaseline.Compute(
-                native.Measurements, verification.Measurements, target,
-                manifest.HdrMode, manifest.SdrWhiteNits,
-                manifest.ToUncertaintyContext(verification.Measurements));
-            baseline.Save(Path.Combine(fixtureDir, "baseline.json"));
-
-            Console.WriteLine($"Golden fixture '{manifest.PanelLabel}' at {fixtureDir}");
-            Console.WriteLine($"  target: {target.Name}  hdr: {manifest.HdrMode}  sdr-white: {manifest.SdrWhiteNits} nits");
-            Console.WriteLine($"  native rows: {native.Measurements.Count}  verification rows: {verification.Measurements.Count}");
-            Console.WriteLine($"  characterization: peak {baseline.PeakLuminanceNits:F1} nits, black {baseline.BlackLevelNits:F3} nits, gamma {baseline.MeasuredGamma:F3}");
-            Console.WriteLine($"  verify: avg dE {baseline.AverageDeltaE:F3}, max {baseline.MaxDeltaE:F3}" +
-                              (baseline.UncertaintyExpandedU is { } u ? $" (U95 +/- {u:F3})" : string.Empty));
-            if (baseline.HdrLutSamples != null)
-                Console.WriteLine($"  hdr lut: black {baseline.HdrMeasuredBlackNits:F3}, peak {baseline.HdrMeasuredPeakNits:F1}, wire-exact {baseline.HdrWireExact}");
-            Console.WriteLine("  wrote baseline.json");
-            return 0;
-        }
-
         // ---------- Core dump ----------
 
         private static void DumpLut(LutOptions opts)
         {
-            var lut = opts.IsSdr
-                ? LutGenerator.GenerateLut(opts.Mode, opts.WhiteLevel, opts.Calibration, isHdr: false)
-                : LutGenerator.GenerateLut(opts.Mode, opts.WhiteLevel, opts.Calibration, isHdr: true);
+            var lut = GenerateLut(opts);
 
             var report = new
             {
@@ -414,7 +302,7 @@ namespace Gloam.Cli
                 gamma = GammaLabel(opts.Mode),
                 sdrWhiteNits = opts.WhiteLevel,
                 path = opts.IsSdr ? "sdr" : "hdr",
-                calibration = DescribeCalibration(opts.Calibration),
+                adjustments = DescribeAdjustments(opts.Adjustments),
                 samples = SamplePoints(lut.Grey.Length).Select(i => new
                 {
                     index = i,
@@ -439,14 +327,15 @@ namespace Gloam.Cli
             }
 
             Console.WriteLine($"LUT: gamma {GammaLabel(opts.Mode)}, SDR white {opts.WhiteLevel} nits, " +
-                              $"brightness {opts.Calibration.Brightness:0}, temp {opts.Calibration.Temperature:0}, tint {opts.Calibration.Tint:0}" +
+                              $"brightness {opts.Adjustments.Brightness:0}" +
+                              (opts.Adjustments.UseLinearBrightness ? " (linear)" : string.Empty) +
+                              $", shadow {opts.Adjustments.ShadowDetailStrength * 100.0:0}%" +
                               (opts.IsSdr ? " [SDR path]" : string.Empty));
 
             if (opts.ShowChart)
             {
-                Console.WriteLine("R " + Sparkline(lut.R));
-                Console.WriteLine("G " + Sparkline(lut.G));
-                Console.WriteLine("B " + Sparkline(lut.B));
+                // Every adjustment is neutral, so R, G and B are the same curve; one line says it all.
+                Console.WriteLine("Y " + Sparkline(lut.Grey));
             }
 
             Console.WriteLine();
@@ -475,16 +364,214 @@ namespace Gloam.Cli
         private static void PrintScenarioRow(string label, LutOptions opts)
         {
             var lut = GenerateGreyLut(opts);
-            double L = lut[0], M = lut[512], H = lut[1023];
-            Console.WriteLine($"  {label,-22} {Sparkline(lut)}  L={L:F2} M={M:F2} H={H:F2}");
+            double L = lut[0], S = lut[ShadowSampleIndex], M = lut[512], H = lut[1023];
+            Console.WriteLine($"  {label,-22} {Sparkline(lut)}  L={L:F2} S={S:F3} M={M:F2} H={H:F2}");
         }
 
-        private static double[] GenerateGreyLut(LutOptions opts)
+        // The cache hands out shared arrays: everything below only reads them.
+        private static (double[] R, double[] G, double[] B, double[] Grey) GenerateLut(LutOptions opts) =>
+            LutGenerator.GenerateLut(opts.Mode, opts.WhiteLevel, opts.Adjustments, isHdr: !opts.IsSdr);
+
+        private static double[] GenerateGreyLut(LutOptions opts) => GenerateLut(opts).Grey;
+
+        // ---------- Invariants ----------
+
+        /// <summary>
+        /// Whole-curve promises the generator makes beyond per-channel range and monotonicity.
+        /// The unit tests pin them on a fixed grid of whites and settings; checking them here
+        /// covers whatever gamma/white/adjustment combination a user is actually running.
+        /// </summary>
+        private static List<string> CheckCurveInvariants(
+            LutOptions opts, (double[] R, double[] G, double[] B, double[] Grey) lut)
         {
-            var lut = opts.IsSdr
-                ? LutGenerator.GenerateLut(opts.Mode, opts.WhiteLevel, opts.Calibration, isHdr: false)
-                : LutGenerator.GenerateLut(opts.Mode, opts.WhiteLevel, opts.Calibration, isHdr: true);
-            return lut.Grey;
+            var failures = new List<string>();
+            // Judge against what the generator evaluated, not the raw options.
+            var adjustments = opts.Adjustments.Sanitized();
+            double[] grey = lut.Grey;
+
+            // Every remaining adjustment is neutral, so the three uploaded channels must be the
+            // same curve. A divergence means a per-channel stage crept back in unchecked.
+            foreach (var (name, channel) in new[] { ("R", lut.R), ("G", lut.G), ("B", lut.B) })
+            {
+                if (channel.Length != grey.Length)
+                {
+                    failures.Add($"{name}: length {channel.Length} differs from Grey's {grey.Length}");
+                    continue;
+                }
+                for (int i = 0; i < grey.Length; i++)
+                {
+                    if (channel[i].Equals(grey[i])) continue;
+                    failures.Add($"{name}: diverges from Grey at index {i} ({channel[i]:G17} vs {grey[i]:G17})");
+                    break;
+                }
+            }
+
+            if (grey.Length != 1024)
+            {
+                // Everything below indexes the 1024-point grid the ramp resampler assumes.
+                failures.Add($"Grey: expected 1024 entries, got {grey.Length}");
+                return failures;
+            }
+
+            // Both paths, gamma and the visibility toe are black-anchored. A lifted black greys
+            // out letterboxing and every dark UI surface.
+            if (Math.Abs(grey[0]) > 1e-9)
+                failures.Add($"black is not anchored: index 0 maps to {grey[0]:G17}");
+
+            if (opts.Mode == GammaMode.WindowsDefault && !adjustments.HasAdjustments)
+            {
+                // Default gamma with nothing to adjust is the bypass: an exact identity on
+                // both paths, so a stale ramp guard restore can never look like a change.
+                CheckIdentity(grey, 0, 1e-12, "bypass", failures);
+            }
+            else if (opts.IsSdr)
+            {
+                // Gamma and the toe never move SDR white; only dimming may.
+                if (adjustments.Brightness >= 100.0 && Math.Abs(grey[1023] - 1.0) > 1e-9)
+                    failures.Add($"SDR white moved at full brightness: index 1023 maps to {grey[1023]:G17}");
+
+                // Gamma 2.2 and Default decode and re-encode with the same 2.2 exponent, so with
+                // nothing to adjust the SDR path nets to a passthrough (pow round-trip only).
+                if (opts.Mode != GammaMode.Gamma24 && !adjustments.HasAdjustments)
+                    CheckIdentity(grey, 0, 1e-9, "SDR 2.2 passthrough", failures);
+            }
+            else
+            {
+                CheckHdrHeadroom(grey, opts.WhiteLevel, adjustments, failures);
+            }
+
+            return failures;
+        }
+
+        /// <summary>
+        /// Above SDR white the HDR path must preserve creative intent: at full brightness every
+        /// highlight is an exact passthrough (gamma and the toe have zero residual at white);
+        /// when dimmed, every highlight lands exactly on the requested dimming curve with no
+        /// second shoulder. Either way no highlight step may collapse.
+        /// </summary>
+        private static void CheckHdrHeadroom(
+            double[] grey, double white, DisplayAdjustments adjustments, List<string> failures)
+        {
+            bool fullBrightness = adjustments.Brightness >= 100.0;
+            for (int i = 1; i < grey.Length; i++)
+            {
+                double input = i / 1023.0;
+                double nits = TransferFunctions.PqEotf(input);
+                if (nits < white) continue;
+
+                if (fullBrightness)
+                {
+                    if (Math.Abs(grey[i] - input) >= 1e-12)
+                    {
+                        failures.Add(
+                            $"HDR highlight not passed through at index {i}: {nits:F3} nits became " +
+                            $"{TransferFunctions.PqEotf(grey[i]):F3}");
+                        return;
+                    }
+                }
+                else
+                {
+                    double expected = ToneAdjustments.ApplyDimmingNits(
+                        nits, adjustments.Brightness, white, adjustments.UseLinearBrightness);
+                    double actual = TransferFunctions.PqEotf(grey[i]);
+                    if (Math.Abs(actual - expected) > Math.Max(1e-8, expected * 1e-9))
+                    {
+                        failures.Add(
+                            $"HDR highlight off the dimming curve at index {i}: {nits:F3} nits became " +
+                            $"{actual:F3}, expected {expected:F3}");
+                        return;
+                    }
+                }
+
+                if (!(grey[i] > grey[i - 1]))
+                {
+                    failures.Add($"HDR highlight detail lost at index {i - 1}->{i}");
+                    return;
+                }
+            }
+        }
+
+        private static void CheckIdentity(double[] lut, int start, double tolerance, string label, List<string> failures)
+        {
+            for (int i = start; i < lut.Length; i++)
+            {
+                double expected = i / 1023.0;
+                if (Math.Abs(lut[i] - expected) > tolerance)
+                {
+                    failures.Add($"{label} is not identity at index {i}: {lut[i]:G17} vs {expected:G17}");
+                    return;
+                }
+            }
+        }
+
+        // Mirrors NativeGammaRamp's Windows validation envelope: each 16-bit entry's high byte
+        // must stay within 128 of its own index, and one violating entry makes
+        // SetDeviceGammaRamp reject the whole ramp. The bounds live in internals Gloam.Core
+        // does not expose to the CLI, so they are restated here; the cross-check in
+        // AnalyzeRamp fails loudly if the two ever disagree.
+        private const int EnvelopeHalfRangeHighBytes = 128;
+
+        private static ushort EnvelopeLower(int i) =>
+            (ushort)(i <= EnvelopeHalfRangeHighBytes ? 0 : (i - EnvelopeHalfRangeHighBytes) * 256);
+
+        private static ushort EnvelopeUpper(int i) =>
+            (ushort)Math.Min(65535, (i + EnvelopeHalfRangeHighBytes + 1) * 256 - 1);
+
+        /// <summary>
+        /// Resamples the LUT onto the 256-entry hardware ramp without the envelope (the curve
+        /// the app asks for), measures how far Windows' envelope would bend it, and checks
+        /// the ramp <see cref="NativeGammaRamp.BuildRampChannel(double[])"/> actually builds.
+        /// </summary>
+        private static RampStats AnalyzeRamp(string name, double[] lut)
+        {
+            var failures = new List<string>();
+            ushort[] applied = NativeGammaRamp.BuildRampChannel(lut);
+            if (applied.Length != 256)
+            {
+                failures.Add($"expected 256 entries, got {applied.Length}");
+                return new RampStats(name, 0, 0, 0, 0, failures);
+            }
+
+            int outside = 0;
+            int maxBend = 0;
+            for (int i = 0; i < 256; i++)
+            {
+                // Same linear interpolation as NativeGammaRamp (and dispwin loading a .cal).
+                double pos = i / 255.0 * (lut.Length - 1);
+                int lo = (int)pos;
+                int hi = Math.Min(lo + 1, lut.Length - 1);
+                double value = lut[lo] + (lut[hi] - lut[lo]) * (pos - lo);
+                value = double.IsFinite(value) ? Math.Clamp(value, 0.0, 1.0) : 0.0;
+                ushort requested = (ushort)Math.Clamp(Math.Round(value * 65535.0), 0, 65535);
+
+                ushort bounded = Math.Clamp(requested, EnvelopeLower(i), EnvelopeUpper(i));
+                if (bounded != requested)
+                {
+                    outside++;
+                    maxBend = Math.Max(maxBend, Math.Abs(bounded - requested));
+                }
+
+                // The real ramp is the requested one (range unlocked in the registry) or its
+                // envelope clamp (the default). Anything else means this mirror has drifted from
+                // NativeGammaRamp and the envelope numbers above can't be trusted.
+                if (applied[i] != requested && applied[i] != bounded)
+                {
+                    failures.Add(
+                        $"NativeGammaRamp built {applied[i]} at entry {i}; expected {requested} " +
+                        $"(or {bounded} clamped). The CLI's envelope mirror is stale.");
+                    break;
+                }
+
+                // Hardware ramps are uploaded as-is; a backwards step there is visible banding
+                // even when every LUT sample was monotonic.
+                if (i > 0 && applied[i] < applied[i - 1])
+                {
+                    failures.Add($"non-monotonic ramp {applied[i - 1]}->{applied[i]} at entry {i - 1}->{i}");
+                    break;
+                }
+            }
+
+            return new RampStats(name, applied[0], applied[255], outside, maxBend, failures);
         }
 
         // ---------- ASCII rendering ----------
@@ -535,6 +622,11 @@ namespace Gloam.Cli
         }
 
         // ---------- Helpers ----------
+
+        // Index 256 is PQ 0.25, about 5 nits: deep inside the visibility toe at every usual SDR
+        // white (the toe's pivot is 10 % of white, 8 nits even at 80-nit white), so it shows
+        // the toe's lift where the L/M/H columns cannot.
+        private const int ShadowSampleIndex = 256;
 
         private static IEnumerable<int> SamplePoints(int len)
         {
@@ -590,18 +682,13 @@ namespace Gloam.Cli
             Console.WriteLine($"Wrote {path}");
         }
 
-        private static object DescribeCalibration(CalibrationSettings calibration) => new
+        private static object DescribeAdjustments(DisplayAdjustments adjustments) => new
         {
-            calibration.Brightness,
-            calibration.UseLinearBrightness,
-            calibration.Temperature,
-            kelvin = ColorAdjustments.TemperatureScaleToKelvin(calibration.Temperature),
-            calibration.TemperatureOffset,
-            calibration.Tint,
-            algorithm = calibration.Algorithm.ToString(),
-            calibration.PerceptualStrength,
-            calibration.UseUltraWarmMode,
-            calibration.NightModeCcssPath
+            adjustments.Brightness,
+            adjustments.UseLinearBrightness,
+            shadowPercent = adjustments.ShadowDetailStrength * 100.0,
+            adjustments.ShadowDetailStrength,
+            adjustments.ShadowDetailPivot
         };
 
         private static ChannelStats AnalyzeChannel(string name, double[] values)
@@ -678,6 +765,22 @@ namespace Gloam.Cli
             return v;
         }
 
+        // The generator silently clamps out-of-range adjustments. A diagnostic tool must not:
+        // a typo like --shadow 400 would otherwise report on a curve nobody asked for.
+        private static double ParseRange(string s, double min, double max, string option)
+        {
+            double v = ParseDouble(s);
+            if (v < min || v > max)
+                throw new ArgumentException($"{option} must be within {min}..{max}, got {s}");
+            return v;
+        }
+
+        // Same range the app's settings normalization allows for a monitor's brightness.
+        private static double ParseBrightness(string s, string option) => ParseRange(s, 10.0, 100.0, option);
+
+        // Dark-area visibility is a percentage in the UI and a 0..1 toe strength in Core.
+        private static double ParseShadowStrength(string s, string option) => ParseRange(s, 0.0, 100.0, option) / 100.0;
+
         private static string RequireValue(string[] args, ref int index, string option)
         {
             if (index + 1 >= args.Length)
@@ -686,61 +789,20 @@ namespace Gloam.Cli
             return args[index];
         }
 
-        private static NightModeAlgorithm ParseAlgorithm(string s) => s.Trim().ToLowerInvariant() switch
-        {
-            "perceptual" or "default" => NightModeAlgorithm.Perceptual,
-            "ultra" or "ultranight" or "ultra-night" or "amber" => NightModeAlgorithm.UltraNight,
-            "accurate" or "cie" or "cie1931" or "cie-1931" => NightModeAlgorithm.AccurateCIE1931,
-            "classic" or "standard" or "helland" => NightModeAlgorithm.Standard,
-            _ => throw new ArgumentException($"Unknown night algorithm: {s}")
-        };
-
-        private static NightBasis ParseBasis(string s) => s.Trim().ToLowerInvariant() switch
-        {
-            "srgb" or "sdr" or "rec709" or "rec.709" => NightBasis.Srgb,
-            "rec2020" or "rec.2020" or "2020" or "hdr" => NightBasis.Rec2020,
-            _ => throw new ArgumentException($"Unknown night basis: {s}")
-        };
-
-        private static void ParseCalOptions(string[] args, int start, LutOptions opts)
+        private static void ParseLutOptions(string[] args, int start, LutOptions opts)
         {
             for (int i = start; i < args.Length; i++)
             {
                 switch (args[i])
                 {
                     case "--brightness":
-                        opts.Calibration.Brightness = ParseDouble(RequireValue(args, ref i, args[i]));
+                        opts.Adjustments.Brightness = ParseBrightness(RequireValue(args, ref i, args[i]), "--brightness");
                         break;
-                    case "--temp":
-                        opts.Calibration.Temperature = ParseDouble(RequireValue(args, ref i, args[i]));
-                        break;
-                    case "--temp-k":
-                        opts.Calibration.Temperature = (ParseDouble(RequireValue(args, ref i, args[i])) - 6500.0) / 70.0;
-                        break;
-                    case "--offset":
-                    case "--temp-offset":
-                        opts.Calibration.TemperatureOffset = ParseDouble(RequireValue(args, ref i, args[i]));
-                        break;
-                    case "--tint":
-                        opts.Calibration.Tint = ParseDouble(RequireValue(args, ref i, args[i]));
-                        break;
-                    case "--algorithm":
-                        opts.Calibration.Algorithm = ParseAlgorithm(RequireValue(args, ref i, args[i]));
-                        break;
-                    case "--strength":
-                    case "--perceptual-strength":
-                        opts.Calibration.PerceptualStrength = NightModeSettings.ClampPerceptualStrength(
-                            ParseDouble(RequireValue(args, ref i, args[i])));
-                        break;
-                    case "--ultra-warm":
-                        opts.Calibration.UseUltraWarmMode = true;
-                        break;
-                    case "--ccss":
-                        opts.Calibration.NightModeCcssPath = RequireValue(args, ref i, args[i]);
-                        opts.Calibration.NightMelanopicCoefficients = CcssMelanopicEstimator.TryLoad(opts.Calibration.NightModeCcssPath);
+                    case "--shadow":
+                        opts.Adjustments.ShadowDetailStrength = ParseShadowStrength(RequireValue(args, ref i, args[i]), "--shadow");
                         break;
                     case "--linear-dim":
-                        opts.Calibration.UseLinearBrightness = true;
+                        opts.Adjustments.UseLinearBrightness = true;
                         break;
                     case "--sdr":
                         opts.IsSdr = true;
@@ -759,85 +821,24 @@ namespace Gloam.Cli
             }
         }
 
-        private static void ParseNightOptions(string[] args, int start, NightOptions opts)
-        {
-            for (int i = start; i < args.Length; i++)
-            {
-                switch (args[i])
-                {
-                    case "--algorithm":
-                    case "--profile":
-                        opts.Algorithm = ParseAlgorithm(RequireValue(args, ref i, args[i]));
-                        break;
-                    case "--basis":
-                        opts.Basis = ParseBasis(RequireValue(args, ref i, args[i]));
-                        break;
-                    case "--strength":
-                    case "--perceptual-strength":
-                        opts.PerceptualStrength = NightModeSettings.ClampPerceptualStrength(
-                            ParseDouble(RequireValue(args, ref i, args[i])));
-                        break;
-                    case "--ccss":
-                        opts.CcssPath = RequireValue(args, ref i, args[i]);
-                        break;
-                    case "--json":
-                        opts.JsonPath = RequireValue(args, ref i, args[i]);
-                        break;
-                    default:
-                        throw new ArgumentException($"Unknown option: {args[i]}");
-                }
-            }
-        }
-
-        private static (double R, double G, double B) GetNightMultipliers(
-            NightOptions opts,
-            NightMelanopicCoefficients? coefficients)
-        {
-            return opts.Algorithm switch
-            {
-                NightModeAlgorithm.AccurateCIE1931 => ColorAdjustments.GetAccurateMultipliers(opts.Kelvin, opts.Basis),
-                NightModeAlgorithm.UltraNight => ColorAdjustments.GetUltraNightMultipliers(opts.Kelvin, coefficients, opts.Basis),
-                NightModeAlgorithm.Standard => ColorAdjustments.GetStandardMultipliers(opts.Kelvin),
-                _ => ColorAdjustments.GetPerceptualMultipliers(opts.Kelvin, opts.PerceptualStrength, opts.Basis)
-            };
-        }
-
-        private static double? EstimateRelativeMelanopic(
-            (double R, double G, double B) multipliers,
-            NightMelanopicCoefficients? coefficients)
-        {
-            if (coefficients == null) return null;
-
-            double neutralMelanopic = coefficients.RedMelanopic + coefficients.GreenMelanopic + coefficients.BlueMelanopic;
-            double neutralLuminance = coefficients.RedLuminance + coefficients.GreenLuminance + coefficients.BlueLuminance;
-            double shiftedMelanopic =
-                multipliers.R * coefficients.RedMelanopic +
-                multipliers.G * coefficients.GreenMelanopic +
-                multipliers.B * coefficients.BlueMelanopic;
-            double shiftedLuminance =
-                multipliers.R * coefficients.RedLuminance +
-                multipliers.G * coefficients.GreenLuminance +
-                multipliers.B * coefficients.BlueLuminance;
-
-            if (neutralMelanopic <= 0 || neutralLuminance <= 0 || shiftedLuminance <= 0)
-                return null;
-
-            return (shiftedMelanopic / shiftedLuminance) / (neutralMelanopic / neutralLuminance);
-        }
-
-        /// <summary>Parses `b=50,t=-20,tint=5` style shorthand into a CalibrationSettings.</summary>
-        private static void ApplyScenarioShorthand(CalibrationSettings cal, string spec)
+        /// <summary>Parses `b=50,s=30,lin` style shorthand into DisplayAdjustments.</summary>
+        private static void ApplyScenarioShorthand(DisplayAdjustments adjustments, string spec)
         {
             foreach (var part in spec.Split(',', StringSplitOptions.RemoveEmptyEntries))
             {
-                var kv = part.Split('=');
+                string piece = part.Trim();
+                if (piece.ToLowerInvariant() is "lin" or "linear")
+                {
+                    adjustments.UseLinearBrightness = true;
+                    continue;
+                }
+
+                var kv = piece.Split('=');
                 if (kv.Length != 2) throw new ArgumentException($"Bad scenario piece: {part}");
-                double v = ParseDouble(kv[1]);
                 switch (kv[0].Trim().ToLowerInvariant())
                 {
-                    case "b": case "brightness": cal.Brightness = v; break;
-                    case "t": case "temp":       cal.Temperature = v; break;
-                    case "tint":                 cal.Tint = v; break;
+                    case "b": case "brightness": adjustments.Brightness = ParseBrightness(kv[1], kv[0]); break;
+                    case "s": case "shadow":     adjustments.ShadowDetailStrength = ParseShadowStrength(kv[1], kv[0]); break;
                     default: throw new ArgumentException($"Unknown scenario key: {kv[0]}");
                 }
             }
@@ -847,21 +848,11 @@ namespace Gloam.Cli
         {
             public GammaMode Mode { get; set; } = GammaMode.Gamma22;
             public double WhiteLevel { get; set; } = 200;
-            public CalibrationSettings Calibration { get; } = new CalibrationSettings();
+            public DisplayAdjustments Adjustments { get; } = new DisplayAdjustments();
             public bool IsSdr { get; set; }
             public string? CsvPath { get; set; }
             public string? JsonPath { get; set; }
             public bool ShowChart { get; set; } = true;
-        }
-
-        private sealed class NightOptions
-        {
-            public int Kelvin { get; set; } = NightModeSettings.DefaultNightKelvin;
-            public NightModeAlgorithm Algorithm { get; set; } = NightModeAlgorithm.Perceptual;
-            public NightBasis Basis { get; set; } = NightBasis.Srgb;
-            public double PerceptualStrength { get; set; } = ColorAdjustments.DefaultPerceptualStrength;
-            public string? CcssPath { get; set; }
-            public string? JsonPath { get; set; }
         }
 
         private sealed record ChannelStats(
@@ -870,6 +861,14 @@ namespace Gloam.Cli
             double Max,
             double MaxPositiveStep,
             double MaxNegativeStep,
+            IReadOnlyList<string> Failures);
+
+        private sealed record RampStats(
+            string Name,
+            ushort First,
+            ushort Last,
+            int EntriesOutsideEnvelope,
+            int MaxBendCounts,
             IReadOnlyList<string> Failures);
     }
 }

@@ -27,22 +27,22 @@ namespace Gloam.Core
         public const string LegacyDataFolderName = "HDRGammaController";
 
         /// <summary>
-        /// %LocalAppData%\Gloam - settings.json, app.log, reports, corrections,
-        /// downloaded Argyll, extracted ICM templates.
+        /// %LocalAppData%\Gloam - settings.json, app.log, downloaded updates. A named
+        /// <see cref="AppProfile"/> gets its own folder beside it.
         /// </summary>
         public static string DataDir => _dataDirOverride ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            DataFolderName);
+            DataFolderName + AppProfile.Suffix);
 
-        /// <summary>%AppData%\Gloam - roaming data (calibration profile JSON).</summary>
+        /// <summary>%AppData%\Gloam - roaming data. Nothing current writes here.</summary>
         public static string RoamingDataDir => _roamingDataDirOverride ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            DataFolderName);
+            DataFolderName + AppProfile.Suffix);
 
         /// <summary>
         /// Overrides the app-owned data directories for this process only. Used by launch
         /// smoke tests and isolated test processes so validation never touches a user's real
-        /// Gloam settings, logs, reports, or downloaded Argyll tools.
+        /// Gloam settings or logs.
         /// </summary>
         public static void UseDataDirectoriesForCurrentProcess(string? dataDir, string? roamingDataDir = null)
         {

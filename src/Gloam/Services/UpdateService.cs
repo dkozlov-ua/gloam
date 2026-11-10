@@ -14,10 +14,20 @@ using Gloam.Core;
 
 namespace Gloam.Services
 {
+    /// <summary>What the update button needs from <see cref="UpdateService"/>.</summary>
+    public interface IUpdater
+    {
+        Version? CurrentVersion { get; }
+        bool IsInstallation { get; }
+        Task<UpdateCheckResult> CheckAsync(CancellationToken cancellationToken = default);
+        Task<string> DownloadAsync(UpdateRelease release, CancellationToken cancellationToken = default);
+        void StartInstaller(string setupPath, string sha256);
+    }
+
     /// <summary>
     /// Updates on a click, from this repository's GitHub Releases.
     ///
-    /// Nothing is checked by itself. "Check for Updates" in the tray asks GitHub for the
+    /// Nothing is checked by itself. "Check for updates" in Gloam's window asks GitHub for the
     /// repository's latest release (<see cref="UpdateRepo"/>; a draft or a prerelease is never
     /// "latest") and compares its vX.Y.Z tag with the running version. A newer one is offered
     /// with its notes, and Install downloads its Gloam-X.Y.Z-setup.exe, checks it against the
@@ -39,7 +49,7 @@ namespace Gloam.Services
     /// The request sends no token, so the repository must be public. A private one answers
     /// 404, which is reported as such rather than as "there is no release".
     /// </summary>
-    public class UpdateService
+    public class UpdateService : IUpdater
     {
         /// <summary>
         /// The repository releases come from. publish.ps1 refuses to publish anywhere else,

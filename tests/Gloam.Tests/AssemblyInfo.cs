@@ -37,7 +37,7 @@ internal static class TestProcessBootstrap
     /// SettingsManager resolves its file statically through <see cref="AppPaths.DataDir"/>,
     /// so a plain `new SettingsManager()` followed by any mutation writes
     /// %LOCALAPPDATA%\Gloam\settings.json: the developer's REAL settings, monitor
-    /// profiles, calibration associations, and game profiles. Individual tests were
+    /// profiles and profile choice. Individual tests were
     /// already opting into <see cref="AppPaths.UseDataDirectoriesForCurrentProcess"/> and
     /// restoring it in a finally, but opt-in is the wrong shape for this: one test that
     /// forgets, anywhere in the suite, silently destroys real user data on the machine of

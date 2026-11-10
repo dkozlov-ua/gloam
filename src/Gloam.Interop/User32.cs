@@ -1,5 +1,4 @@
 using System;
-using System.ComponentModel;
 using System.Runtime.InteropServices;
 
 namespace Gloam.Interop
@@ -26,27 +25,12 @@ namespace Gloam.Interop
             public void Initialize() => cb = Marshal.SizeOf(this);
         }
 
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern bool UnregisterHotKey(IntPtr hWnd, int id);
-
-        [DllImport("user32.dll")]
-        public static extern IntPtr GetForegroundWindow();
-
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
-
         [StructLayout(LayoutKind.Sequential)]
         public struct POINT
         {
             public int X;
             public int Y;
         }
-
-        [DllImport("user32.dll")]
-        public static extern bool GetCursorPos(out POINT lpPoint);
 
         [DllImport("user32.dll")]
         public static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);
@@ -75,7 +59,7 @@ namespace Gloam.Interop
         /// </summary>
         public static bool TryGetMonitorBounds(IntPtr hMonitor, out Dxgi.RECT bounds)
         {
-            var mi = new MONITORINFO { cbSize = Marshal.SizeOf(typeof(MONITORINFO)) };
+            var mi = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
             if (hMonitor != IntPtr.Zero && GetMonitorInfo(hMonitor, ref mi))
             {
                 bounds = mi.rcMonitor;
@@ -88,11 +72,11 @@ namespace Gloam.Interop
         /// <summary>
         /// Working area (rcWork) of a live HMONITOR: the desktop rect EXCLUDING the taskbar
         /// and any other appbars. Use this for placing windows that must not overlap the
-        /// taskbar (e.g. notification toasts). Returns false if the handle is invalid.
+        /// taskbar (the flyout). Returns false if the handle is invalid.
         /// </summary>
         public static bool TryGetMonitorWorkArea(IntPtr hMonitor, out Dxgi.RECT work)
         {
-            var mi = new MONITORINFO { cbSize = Marshal.SizeOf(typeof(MONITORINFO)) };
+            var mi = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
             if (hMonitor != IntPtr.Zero && GetMonitorInfo(hMonitor, ref mi))
             {
                 work = mi.rcWork;
@@ -104,71 +88,5 @@ namespace Gloam.Interop
         
         public const int DISPLAY_DEVICE_ATTACHED_TO_DESKTOP = 0x1;
         public const int DISPLAY_DEVICE_PRIMARY_DEVICE = 0x4;
-
-        // WinEventHook
-        public delegate void WinEventDelegate(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern IntPtr SetWinEventHook(uint eventMin, uint eventMax, IntPtr hmodWinEventProc, WinEventDelegate lpfnWinEventProc, uint idProcess, uint idThread, uint dwFlags);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern bool UnhookWinEvent(IntPtr hWinEventHook);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern bool GetWindowRect(IntPtr hWnd, out Dxgi.RECT lpRect);
-
-        public const uint WINEVENT_OUTOFCONTEXT = 0;
-        public const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
-        public const uint EVENT_OBJECT_LOCATIONCHANGE = 0x800B; // Optional
-    }
-
-    /// <summary>
-    /// Safe wrappers for User32 P/Invoke calls with proper error handling.
-    /// </summary>
-    public static class User32Safe
-    {
-        /// <summary>
-        /// Attempts to register a hotkey. Returns false if registration fails.
-        /// </summary>
-        public static bool TryRegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk, out int errorCode)
-        {
-            if (User32.RegisterHotKey(hWnd, id, fsModifiers, vk))
-            {
-                errorCode = 0;
-                return true;
-            }
-            errorCode = Marshal.GetLastWin32Error();
-            return false;
-        }
-
-        /// <summary>
-        /// Registers a hotkey or throws Win32Exception on failure.
-        /// </summary>
-        public static void RegisterHotKeyOrThrow(IntPtr hWnd, int id, uint fsModifiers, uint vk)
-        {
-            if (!User32.RegisterHotKey(hWnd, id, fsModifiers, vk))
-            {
-                throw new Win32Exception(Marshal.GetLastWin32Error(),
-                    $"Failed to register hotkey (id={id}, modifiers=0x{fsModifiers:X}, vk=0x{vk:X})");
-            }
-        }
-
-        /// <summary>
-        /// Gets the window rect or returns false on failure.
-        /// </summary>
-        public static bool TryGetWindowRect(IntPtr hWnd, out Dxgi.RECT rect, out int errorCode)
-        {
-            if (User32.GetWindowRect(hWnd, out rect))
-            {
-                errorCode = 0;
-                return true;
-            }
-            errorCode = Marshal.GetLastWin32Error();
-            rect = default;
-            return false;
-        }
     }
 }
